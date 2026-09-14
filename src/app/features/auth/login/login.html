@@ -1,0 +1,66 @@
+<p-toast />
+
+<main class="relative min-h-screen overflow-hidden">
+  <div
+    class="pointer-events-none absolute inset-y-0 left-0 hidden w-[46%] bg-[linear-gradient(160deg,#103533_0%,#0c6b6f_55%,#1a9b94_100%)] lg:block"
+  >
+    <div class="absolute inset-0 opacity-30" style="background-image: radial-gradient(circle at 20% 20%, white 0.8px, transparent 1px); background-size: 22px 22px;"></div>
+    <div class="relative flex h-full flex-col justify-between p-12 text-white">
+      <div>
+        <p class="font-display text-6xl tracking-tight">GMS</p>
+        <p class="mt-4 max-w-sm text-lg text-teal-50/85">
+          Cylinder bookings, consumer records, and distributor ops in one calm workspace.
+        </p>
+      </div>
+      <p class="text-sm text-teal-50/70">HPCL · BPCL · IOCL ready</p>
+    </div>
+  </div>
+
+  <section class="gms-enter relative flex min-h-screen items-center justify-center px-4 py-10 lg:ml-[46%] lg:justify-start lg:px-16">
+    <div class="w-full max-w-md">
+      <div class="mb-8 lg:hidden">
+        <p class="font-display text-5xl tracking-tight text-[var(--gms-ink)]">GMS</p>
+        <p class="mt-2 text-sm text-[var(--gms-muted)]">Gas booking &amp; distributor operations</p>
+      </div>
+
+      <form class="gms-panel p-7 md:p-8" [formGroup]="form" (ngSubmit)="submit()">
+        <p class="gms-page-kicker">Welcome back</p>
+        <h1 class="font-display mt-1 text-3xl tracking-tight text-[var(--gms-ink)]">Sign in</h1>
+        <p class="mt-2 mb-7 text-sm text-[var(--gms-muted)]">
+          Continue to your GMS workspace. New accounts are created by an admin.
+        </p>
+
+        <label class="mb-4 block">
+          <span class="gms-field-label">Email</span>
+          <input
+            pInputText
+            class="w-full"
+            type="email"
+            formControlName="email"
+            autocomplete="email"
+          />
+        </label>
+
+        <label class="mb-7 block">
+          <span class="gms-field-label">Password</span>
+          <p-password
+            formControlName="password"
+            [feedback]="false"
+            [toggleMask]="true"
+            styleClass="w-full"
+            inputStyleClass="w-full"
+            autocomplete="current-password"
+          />
+        </label>
+
+        <p-button
+          type="submit"
+          styleClass="w-full"
+          label="Sign in"
+          icon="pi pi-sign-in"
+          [loading]="submitting()"
+        />
+      </form>
+    </div>
+  </section>
+</main>

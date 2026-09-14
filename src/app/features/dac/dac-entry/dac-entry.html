@@ -1,0 +1,341 @@
+<div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+<form
+  class="mx-auto w-full max-w-3xl space-y-5 pb-28 lg:mx-0 lg:max-w-none"
+  [formGroup]="form"
+  (ngSubmit)="submit()"
+  (keydown)="onFormKeydown($event)"
+>
+  <div class="flex flex-wrap gap-2" aria-hidden="true">
+    <span
+      class="gms-step"
+      [class.is-done]="lookupState() !== 'idle'"
+      [class.is-active]="lookupState() === 'idle'"
+      >1 · Lookup</span
+    >
+    <span
+      class="gms-step"
+      [class.is-active]="lookupState() === 'missing'"
+      [class.is-done]="lookupState() === 'found'"
+      >2 · Consumer</span
+    >
+    <span class="gms-step" [class.is-active]="lookupState() !== 'idle'">3 · DAC</span>
+  </div>
+
+  <section class="gms-panel p-5 md:p-6" aria-labelledby="lookup-heading">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <h2 id="lookup-heading" class="font-display text-xl tracking-tight text-[var(--gms-ink)]">
+          Consumer lookup
+        </h2>
+        <p class="mt-1 text-sm text-[var(--gms-muted)]">
+          Select the consumer’s distributor, then look up the consumer number.
+        </p>
+      </div>
+      <i class="pi pi-search text-[var(--gms-mint)]" aria-hidden="true"></i>
+    </div>
+
+    <div class="mt-5 grid gap-4">
+      <div class="gms-field-with-action">
+        <label class="block min-w-0">
+          <span class="gms-field-label">Consumer distributor</span>
+          <p-select
+            formControlName="distributorId"
+            inputId="distributorId"
+            [options]="distributors()"
+            optionLabel="label"
+            optionValue="_id"
+            placeholder="Select distributor"
+            [filter]="true"
+            filterPlaceholder="Search distributor"
+            appendTo="body"
+            styleClass="w-full gms-select"
+            panelStyleClass="gms-select-panel"
+          />
+        </label>
+        <p-button
+          type="button"
+          [icon]="
+            isDefaultConsumerDistributor(form.controls.distributorId.value)
+              ? 'pi pi-bookmark-fill'
+              : 'pi pi-bookmark'
+          "
+          [styleClass]="
+            isDefaultConsumerDistributor(form.controls.distributorId.value)
+              ? 'gms-icon-btn is-default'
+              : 'gms-icon-btn'
+          "
+          [disabled]="!form.controls.distributorId.value"
+          (onClick)="setDefaultConsumerDistributor()"
+          [attr.title]="
+            isDefaultConsumerDistributor(form.controls.distributorId.value)
+              ? 'Default consumer distributor'
+              : 'Set as default consumer distributor'
+          "
+          ariaLabel="Set consumer distributor as default"
+        />
+      </div>
+
+      <div class="gms-field-with-action">
+        <label class="block min-w-0">
+          <span class="gms-field-label">Consumer number</span>
+          <input
+            id="consumerNumber"
+            pInputText
+            class="w-full"
+            formControlName="consumerNumber"
+            placeholder="Enter consumer number"
+            autocomplete="off"
+          />
+        </label>
+        <p-button
+          type="button"
+          icon="pi pi-search"
+          styleClass="gms-icon-btn"
+          [loading]="lookingUp()"
+          (onClick)="lookup()"
+          ariaLabel="Look up consumer"
+          title="Look up"
+        />
+      </div>
+    </div>
+
+    @if (lookupState() === 'found' && lookupResult()?.consumer; as consumer) {
+      <div class="gms-reveal gms-status gms-status-found mt-5" role="status">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wide text-[var(--gms-teal-deep)]">
+              Existing consumer
+            </p>
+            <p class="mt-1 font-semibold text-[var(--gms-ink)]">{{ consumer.name }}</p>
+            <p class="mt-1 text-sm text-[var(--gms-muted)]">{{ consumerSummary(consumer) }}</p>
+          </div>
+          <i class="pi pi-check-circle text-[var(--gms-mint)]" aria-hidden="true"></i>
+        </div>
+        @if (lookupResult()?.lastDac) {
+          <div
+            class="mt-3 grid gap-2 border-t border-[var(--gms-mist-strong)] pt-3 text-sm text-[var(--gms-muted)] sm:grid-cols-2"
+          >
+            <p>Last DAC · {{ formatDate(lookupResult()?.lastDac?.dacDate || null) }}</p>
+            <p>Next eligible · {{ formatDate(lookupResult()?.nextEligibleDate || null) }}</p>
+          </div>
+        }
+      </div>
+    }
+
+    @if (intervalBlocked()) {
+      <div class="gms-reveal gms-status gms-status-blocked mt-4 text-sm text-[#8a2f28]" role="alert">
+        Interval days have not elapsed for this consumer. A new DAC cannot be booked yet.
+      </div>
+    }
+
+    @if (lookupState() === 'missing') {
+      <div class="gms-reveal gms-status gms-status-missing mt-5">
+        <p class="text-xs font-semibold uppercase tracking-wide text-[var(--gms-teal-deep)]">New consumer</p>
+        <p class="mt-1 text-sm text-[var(--gms-muted)]">
+          Not found for this distributor — capture details here with the DAC.
+        </p>
+        <div class="mt-4 grid gap-4 md:grid-cols-2">
+          <label class="block md:col-span-2">
+            <span class="gms-field-label">Name *</span>
+            <input id="consumerName" pInputText class="w-full" formControlName="consumerName" />
+          </label>
+          <label class="block">
+            <span class="gms-field-label">Father name</span>
+            <input pInputText class="w-full" formControlName="fatherName" />
+          </label>
+          <label class="block">
+            <span class="gms-field-label">Phone</span>
+            <input pInputText class="w-full" formControlName="phone" />
+          </label>
+          <label class="block md:col-span-2">
+            <span class="gms-field-label">Address</span>
+            <textarea pTextarea class="w-full" rows="2" formControlName="address"></textarea>
+          </label>
+        </div>
+      </div>
+    }
+  </section>
+
+  @if (lookupState() !== 'idle') {
+    <section class="gms-reveal gms-panel p-5 md:p-6" aria-labelledby="dac-heading">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h2 id="dac-heading" class="font-display text-xl tracking-tight text-[var(--gms-ink)]">
+            DAC details
+          </h2>
+          <p class="mt-1 text-sm text-[var(--gms-muted)]">
+            Booking can be under a different distributor than the consumer’s.
+          </p>
+        </div>
+        <i class="pi pi-file-edit text-[var(--gms-mint)]" aria-hidden="true"></i>
+      </div>
+
+      <div class="mt-5 grid gap-4 md:grid-cols-2">
+        <div class="gms-field-with-action md:col-span-2">
+          <label class="block min-w-0">
+            <span class="gms-field-label">DAC booking distributor</span>
+            <p-select
+              formControlName="bookingDistributorId"
+              inputId="bookingDistributorId"
+              [options]="distributors()"
+              optionLabel="label"
+              optionValue="_id"
+              placeholder="Where DAC is booked"
+              [filter]="true"
+              filterPlaceholder="Search distributor"
+              appendTo="body"
+              styleClass="w-full gms-select"
+              panelStyleClass="gms-select-panel"
+            />
+          </label>
+          <p-button
+            type="button"
+            [icon]="
+              isDefaultBookingDistributor(form.controls.bookingDistributorId.value)
+                ? 'pi pi-bookmark-fill'
+                : 'pi pi-bookmark'
+            "
+            [styleClass]="
+              isDefaultBookingDistributor(form.controls.bookingDistributorId.value)
+                ? 'gms-icon-btn is-default'
+                : 'gms-icon-btn'
+            "
+            [disabled]="!form.controls.bookingDistributorId.value"
+            (onClick)="setDefaultBookingDistributor()"
+            [attr.title]="
+              isDefaultBookingDistributor(form.controls.bookingDistributorId.value)
+                ? 'Default DAC booking distributor'
+                : 'Set as default DAC booking distributor'
+            "
+            ariaLabel="Set DAC booking distributor as default"
+          />
+        </div>
+
+        <label class="block">
+          <span class="gms-field-label">DAC number</span>
+          <input id="dacNumber" pInputText class="w-full" formControlName="dacNumber" />
+        </label>
+        <label class="block">
+          <span class="gms-field-label">DAC date</span>
+          <p-datepicker
+            formControlName="dacDate"
+            inputId="dacDate"
+            dateFormat="dd/mm/yy"
+            [showIcon]="true"
+            appendTo="body"
+            styleClass="w-full"
+            inputStyleClass="w-full"
+          />
+        </label>
+        <label class="block">
+          <span class="gms-field-label">Payment method</span>
+          <p-select
+            formControlName="paymentMethod"
+            inputId="paymentMethod"
+            [options]="paymentMethods"
+            appendTo="body"
+            styleClass="w-full gms-select"
+            panelStyleClass="gms-select-panel"
+          />
+        </label>
+        <label class="block">
+          <span class="gms-field-label">Amount</span>
+          <p-inputnumber
+            formControlName="amount"
+            inputId="amount"
+            mode="currency"
+            currency="INR"
+            locale="en-IN"
+            styleClass="w-full"
+            inputStyleClass="w-full"
+          />
+        </label>
+        <label class="block">
+          <span class="gms-field-label">Interval days</span>
+          <p-inputnumber
+            formControlName="intervalDays"
+            inputId="intervalDays"
+            [min]="1"
+            styleClass="w-full"
+            inputStyleClass="w-full"
+          />
+        </label>
+
+        <div class="gms-toggle-row md:col-span-1">
+          <div>
+            <p class="gms-field-label !mb-0.5">Delivery</p>
+            <p class="text-sm font-medium text-[var(--gms-ink)]">
+              {{ form.controls.deliveryDone.value ? 'Delivered' : 'Pending' }}
+            </p>
+          </div>
+          <p-checkbox formControlName="deliveryDone" inputId="deliveryDone" [binary]="true" />
+        </div>
+
+        @if (projectedNextDate(); as nextDate) {
+          <div
+            class="gms-next-date md:col-span-2"
+            role="status"
+            aria-live="polite"
+          >
+            <p class="gms-field-label !mb-1">Next date after this DAC</p>
+            <p class="text-[0.95rem] font-semibold text-[var(--gms-teal-deep)]">
+              {{ formatDate(nextDate) }}
+            </p>
+            <p class="mt-0.5 text-xs text-[var(--gms-muted)]">
+              After interval days (DAC date excluded)
+            </p>
+          </div>
+        }
+
+        <label class="block md:col-span-2">
+          <span class="gms-field-label">Remarks</span>
+          <textarea pTextarea class="w-full" rows="2" formControlName="remarks"></textarea>
+        </label>
+      </div>
+    </section>
+
+    <div
+      class="gms-reveal sticky bottom-4 z-10 flex flex-col gap-3 rounded-2xl border border-[var(--gms-line)] bg-white/90 px-4 py-3 shadow-[0_12px_30px_-18px_rgba(16,42,40,0.45)] backdrop-blur sm:flex-row sm:items-center sm:justify-between"
+    >
+      <p class="text-sm text-[var(--gms-muted)]">
+        {{
+          intervalBlocked()
+            ? 'Waiting for interval to elapse'
+            : lookupState() === 'missing'
+              ? 'Will create consumer + DAC together'
+              : 'Ready to save DAC'
+        }}
+      </p>
+      <p-button
+        type="submit"
+        label="Save DAC"
+        icon="pi pi-check"
+        [loading]="submitting()"
+        [disabled]="intervalBlocked()"
+      />
+    </div>
+  }
+</form>
+
+<aside class="gms-panel h-fit p-4 lg:sticky lg:top-4">
+  <p class="gms-page-kicker">Recent DACs</p>
+  @if (loadingRecent()) {
+    <p class="mt-3 text-sm text-[var(--gms-muted)]">Loading…</p>
+  } @else if (recentDacs().length === 0) {
+    <p class="mt-3 text-sm text-[var(--gms-muted)]">No DAC entries yet.</p>
+  } @else {
+    <ul class="mt-3 space-y-2">
+      @for (dac of recentDacs(); track dac._id) {
+        <li class="rounded-lg border border-[var(--gms-line)] bg-[#f7fafa] px-3 py-2">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-xs font-semibold text-[var(--gms-teal-deep)]">{{ dac.dacNumber }}</span>
+            <span class="font-semibold">{{ formatAmount(dac.amount) }}</span>
+          </div>
+          <p class="mt-1 text-xs text-[var(--gms-muted)]">{{ consumerLabel(dac) }}</p>
+          <p class="text-xs text-[var(--gms-muted)]">{{ formatDate(dac.dacDate) }}</p>
+        </li>
+      }
+    </ul>
+  }
+</aside>
+</div>

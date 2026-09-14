@@ -1,0 +1,330 @@
+<div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+  <div>
+    <p class="gms-page-kicker">Inventory</p>
+    <p class="mt-1 max-w-xl text-sm text-[var(--gms-muted)]">
+      Stock purchased from distributors is posted to their account. Pay them via Account Entry.
+    </p>
+  </div>
+  <div class="flex flex-wrap gap-2">
+    <p-button label="Manage items" icon="pi pi-box" severity="secondary" [outlined]="true" routerLink="/items" />
+    <p-button label="Add purchase" icon="pi pi-plus" (onClick)="openCreate()" />
+  </div>
+</div>
+
+<section class="gms-panel mb-5 p-4 md:p-5">
+  <div class="grid gap-4 md:grid-cols-3">
+    <label class="block">
+      <span class="gms-field-label">From</span>
+      <p-datepicker
+        [(ngModel)]="fromDate"
+        inputId="purchaseFrom"
+        dateFormat="dd/mm/yy"
+        [showIcon]="true"
+        appendTo="body"
+        styleClass="w-full"
+        inputStyleClass="w-full"
+      />
+    </label>
+    <label class="block">
+      <span class="gms-field-label">To</span>
+      <p-datepicker
+        [(ngModel)]="toDate"
+        inputId="purchaseTo"
+        dateFormat="dd/mm/yy"
+        [showIcon]="true"
+        appendTo="body"
+        styleClass="w-full"
+        inputStyleClass="w-full"
+      />
+    </label>
+    <label class="block">
+      <span class="gms-field-label">Distributor (optional)</span>
+      <p-select
+        [(ngModel)]="distributorId"
+        inputId="purchaseDistributor"
+        [options]="distributors()"
+        optionLabel="label"
+        optionValue="_id"
+        placeholder="All distributors"
+        [filter]="true"
+        [showClear]="true"
+        appendTo="body"
+        styleClass="w-full gms-select"
+        panelStyleClass="gms-select-panel"
+      />
+    </label>
+  </div>
+  <div class="mt-4 flex flex-wrap justify-end gap-2">
+    <p-button
+      label="This month"
+      icon="pi pi-calendar"
+      severity="secondary"
+      [outlined]="true"
+      (onClick)="resetCurrentMonth()"
+    />
+    <p-button
+      label="Export CSV"
+      icon="pi pi-download"
+      severity="secondary"
+      [outlined]="true"
+      [disabled]="!rows().length"
+      (onClick)="exportCsv()"
+    />
+    <p-button
+      label="Export PDF"
+      icon="pi pi-file-pdf"
+      severity="secondary"
+      [outlined]="true"
+      [disabled]="!rows().length"
+      (onClick)="exportPdf()"
+    />
+    <p-button label="Apply" icon="pi pi-search" (onClick)="search()" />
+  </div>
+</section>
+
+<div class="gms-table-wrap overflow-x-auto">
+  <p-table
+    [value]="rows()"
+    [loading]="loading()"
+    [paginator]="rows().length > 10"
+    [rows]="10"
+    styleClass="p-datatable-sm gms-datatable"
+  >
+    <ng-template #header>
+      <tr>
+        <th>Date</th>
+        <th>Distributor</th>
+        <th>Invoice</th>
+        <th>Items</th>
+        <th class="text-right">Total</th>
+        <th style="width: 9rem" class="text-right">Actions</th>
+      </tr>
+    </ng-template>
+    <ng-template #body let-row>
+      <tr>
+        <td class="whitespace-nowrap font-medium">{{ formatDate(row.purchaseDate) }}</td>
+        <td>{{ distributorName(row) }}</td>
+        <td class="text-[var(--gms-muted)]">{{ row.invoiceNumber || '—' }}</td>
+        <td class="text-[var(--gms-muted)]">{{ itemSummary(row) }}</td>
+        <td class="text-right font-semibold">{{ formatAmount(row.totalAmount) }}</td>
+        <td>
+          <div class="flex justify-end gap-1">
+            <p-button
+              icon="pi pi-pencil"
+              severity="secondary"
+              [rounded]="true"
+              [text]="true"
+              (onClick)="openEdit(row)"
+              ariaLabel="Edit"
+            />
+            <p-button
+              icon="pi pi-trash"
+              severity="danger"
+              [rounded]="true"
+              [text]="true"
+              (onClick)="confirmDelete(row)"
+              ariaLabel="Delete"
+            />
+          </div>
+        </td>
+      </tr>
+    </ng-template>
+    <ng-template #emptymessage>
+      <tr>
+        <td colspan="6">
+          <div class="gms-empty">
+            <i class="pi pi-shopping-cart"></i>
+            <p class="font-medium text-[var(--gms-ink)]">No purchases yet</p>
+            <p class="text-sm">Record stock bought from a distributor.</p>
+          </div>
+        </td>
+      </tr>
+    </ng-template>
+  </p-table>
+</div>
+
+<p-dialog
+  [header]="editingId() ? 'Edit purchase' : 'Add purchase'"
+  [modal]="true"
+  [style]="{ width: 'min(46rem, 96vw)' }"
+  [draggable]="false"
+  [dismissableMask]="true"
+  styleClass="gms-dialog"
+  [visible]="dialogVisible()"
+  (visibleChange)="dialogVisible.set($event)"
+>
+  <form class="gms-dialog-body" [formGroup]="form" (ngSubmit)="save()">
+    <p class="gms-dialog-lead">
+      The total is credited to the distributor's party account. Pay now, or record payment later as "You gave" in Account Entry.
+    </p>
+
+    <div class="grid gap-4 sm:grid-cols-2">
+      <label class="block">
+        <span class="gms-field-label">Distributor</span>
+        <p-select
+          formControlName="distributor"
+          [options]="distributors()"
+          optionLabel="label"
+          optionValue="_id"
+          placeholder="Select distributor"
+          [filter]="true"
+          appendTo="body"
+          styleClass="w-full gms-select"
+          panelStyleClass="gms-select-panel"
+        />
+      </label>
+      <label class="block">
+        <span class="gms-field-label">Purchase date</span>
+        <p-datepicker
+          formControlName="purchaseDate"
+          dateFormat="dd/mm/yy"
+          [showIcon]="true"
+          appendTo="body"
+          styleClass="w-full"
+          inputStyleClass="w-full"
+        />
+      </label>
+      @if (editingId()) {
+        <label class="block sm:col-span-2">
+          <span class="gms-field-label">Invoice number</span>
+          <input pInputText class="w-full" formControlName="invoiceNumber" />
+        </label>
+      } @else {
+        <label class="block">
+          <span class="gms-field-label">Invoice number</span>
+          <input pInputText class="w-full" formControlName="invoiceNumber" />
+        </label>
+        <label class="block">
+          <span class="gms-field-label">Pay now</span>
+          <p-select
+            formControlName="payNow"
+            [options]="payNowOptions"
+            optionLabel="label"
+            optionValue="value"
+            appendTo="body"
+            styleClass="w-full gms-select"
+            panelStyleClass="gms-select-panel"
+          />
+        </label>
+      }
+    </div>
+
+    <div>
+      <div class="mb-2 flex items-center justify-between">
+        <span class="gms-field-label">Items</span>
+        <p-button type="button" label="Add line" icon="pi pi-plus" severity="secondary" [text]="true" (onClick)="addItem()" />
+      </div>
+      <div class="space-y-3" formArrayName="items">
+        @for (ctrl of items.controls; track ctrl; let i = $index) {
+          <div class="rounded-lg border border-[var(--gms-line)] bg-[#f7fafa] p-3" [formGroupName]="i">
+            <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_5.5rem_7rem_7.5rem_auto]">
+              <label class="block min-w-0">
+                <span class="gms-field-label">Item</span>
+                <p-select
+                  formControlName="item"
+                  [options]="stockItems()"
+                  optionLabel="label"
+                  optionValue="_id"
+                  placeholder="Select item"
+                  [filter]="true"
+                  appendTo="body"
+                  styleClass="w-full gms-select"
+                  panelStyleClass="gms-select-panel"
+                  (onChange)="onItemChange(i)"
+                />
+              </label>
+              <label class="block">
+                <span class="gms-field-label">Qty</span>
+                <p-inputnumber
+                  formControlName="quantity"
+                  [min]="0.01"
+                  [minFractionDigits]="0"
+                  [maxFractionDigits]="2"
+                  styleClass="w-full"
+                  inputStyleClass="w-full"
+                  (onInput)="bumpFormTick()"
+                />
+              </label>
+              <label class="block">
+                <span class="gms-field-label">Rate</span>
+                <p-inputnumber
+                  formControlName="rate"
+                  mode="currency"
+                  currency="INR"
+                  locale="en-IN"
+                  [min]="0"
+                  styleClass="w-full"
+                  inputStyleClass="w-full"
+                  (onInput)="bumpFormTick()"
+                />
+              </label>
+              <label class="block">
+                <span class="gms-field-label">Amount</span>
+                <p-inputnumber
+                  [ngModel]="lineAmount(ctrl)"
+                  [ngModelOptions]="{ standalone: true }"
+                  mode="currency"
+                  currency="INR"
+                  locale="en-IN"
+                  [disabled]="true"
+                  styleClass="w-full"
+                  inputStyleClass="w-full"
+                />
+              </label>
+              <div class="flex items-end pb-0.5">
+                <p-button
+                  type="button"
+                  icon="pi pi-trash"
+                  severity="danger"
+                  [text]="true"
+                  [disabled]="items.length <= 1"
+                  (onClick)="removeItem(i)"
+                  ariaLabel="Remove item"
+                />
+              </div>
+            </div>
+          </div>
+        }
+      </div>
+      <p class="mt-3 text-right text-sm font-semibold text-[var(--gms-ink)]">
+        Total: {{ formatAmount(totalAmount()) }}
+      </p>
+    </div>
+
+    @if (!editingId() && form.controls.payNow.value) {
+      <div class="grid gap-4 sm:grid-cols-2">
+        <label class="block">
+          <span class="gms-field-label">Payment particulars</span>
+          <input
+            pInputText
+            class="w-full"
+            formControlName="paymentParticular"
+            placeholder="e.g. UPI / Cash / Bank transfer"
+          />
+        </label>
+        <label class="block">
+          <span class="gms-field-label">Payment amount</span>
+          <p-inputnumber
+            formControlName="paymentAmount"
+            mode="currency"
+            currency="INR"
+            locale="en-IN"
+            [min]="1"
+            styleClass="w-full"
+            inputStyleClass="w-full"
+          />
+        </label>
+      </div>
+    }
+
+    <label class="block">
+      <span class="gms-field-label">Remarks</span>
+      <textarea pTextarea class="w-full" rows="2" formControlName="remarks"></textarea>
+    </label>
+
+    <div class="gms-dialog-actions">
+      <p-button type="button" label="Cancel" severity="secondary" [text]="true" (onClick)="dialogVisible.set(false)" />
+      <p-button type="submit" label="Save" icon="pi pi-check" [loading]="saving()" />
+    </div>
+  </form>
+</p-dialog>

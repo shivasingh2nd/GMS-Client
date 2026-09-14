@@ -1,0 +1,163 @@
+<p-toast />
+
+<p-confirmdialog
+  styleClass="gms-dialog gms-confirm"
+  maskStyleClass="gms-confirm-mask"
+  [style]="{ width: 'min(26rem, 92vw)' }"
+  [closable]="false"
+  [draggable]="false"
+  [dismissableMask]="true"
+  [closeOnEscape]="true"
+  appendTo="body"
+>
+  <ng-template
+    #headless
+    let-confirmation
+    let-onAccept="onAccept"
+    let-onReject="onReject"
+  >
+    <div class="gms-confirm-panel">
+      <button
+        type="button"
+        class="gms-confirm-close"
+        (click)="onReject()"
+        aria-label="Close"
+      >
+        <i class="pi pi-times" aria-hidden="true"></i>
+      </button>
+
+      <div class="gms-confirm-icon" aria-hidden="true">
+        <i [class]="confirmation?.icon || 'pi pi-trash'"></i>
+      </div>
+
+      <h2 class="gms-confirm-heading">{{ confirmation?.header || 'Confirm' }}</h2>
+      <p class="gms-confirm-text">{{ confirmation?.message }}</p>
+
+      <div class="gms-confirm-actions">
+        <p-button
+          type="button"
+          [label]="confirmation?.rejectLabel || 'Cancel'"
+          severity="secondary"
+          [text]="true"
+          (onClick)="onReject()"
+        />
+        <p-button
+          type="button"
+          [label]="confirmation?.acceptLabel || 'Delete'"
+          [icon]="confirmation?.acceptIcon || 'pi pi-trash'"
+          severity="danger"
+          (onClick)="onAccept()"
+        />
+      </div>
+    </div>
+  </ng-template>
+  <ng-template #footer></ng-template>
+</p-confirmdialog>
+
+<div class="min-h-screen lg:grid lg:grid-cols-[272px_1fr]">
+  @if (sidebarOpen()) {
+    <button
+      type="button"
+      class="fixed inset-0 z-40 bg-black/40 lg:hidden"
+      aria-label="Close menu"
+      (click)="closeSidebar()"
+    ></button>
+  }
+
+  <aside
+    class="gms-sidebar fixed inset-y-0 left-0 z-50 flex w-[min(18rem,86vw)] flex-col overflow-hidden bg-[linear-gradient(165deg,#103533_0%,#0c6b6f_48%,#147f79_100%)] px-4 py-5 text-white shadow-2xl transition-transform duration-300 lg:static lg:z-auto lg:w-auto lg:translate-x-0 lg:shadow-none"
+    [class.-translate-x-full]="!sidebarOpen()"
+    [class.translate-x-0]="sidebarOpen()"
+    aria-label="Main navigation"
+  >
+    <div
+      class="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl"
+    ></div>
+    <div
+      class="pointer-events-none absolute -bottom-16 left-4 h-44 w-44 rounded-full bg-teal-200/20 blur-3xl"
+    ></div>
+
+    <div class="relative mb-6 flex items-start justify-between gap-2 px-2">
+      <div>
+        <p class="font-display text-4xl tracking-tight">GMS</p>
+        <p class="mt-1 text-xs text-teal-50/80">Gas Management System</p>
+      </div>
+      <p-button
+        class="lg:hidden"
+        icon="pi pi-times"
+        [rounded]="true"
+        [text]="true"
+        styleClass="!text-white"
+        (onClick)="closeSidebar()"
+        ariaLabel="Close menu"
+      />
+    </div>
+
+    <nav class="relative flex flex-1 flex-col gap-4 overflow-y-auto pb-4">
+      @for (group of navGroups(); track group.label) {
+        <div>
+          <p class="mb-1.5 px-3 text-[0.65rem] font-semibold uppercase tracking-[0.08em] text-teal-100/45">
+            {{ group.label }}
+          </p>
+          <div class="flex flex-col gap-0.5">
+            @for (item of group.items; track item.path) {
+              <a
+                [routerLink]="item.path"
+                routerLinkActive="bg-white/18 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.18)]"
+                class="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium text-teal-50/85 transition hover:bg-white/12 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+              >
+                <i [class]="item.icon + ' text-[0.95rem]'" aria-hidden="true"></i>
+                {{ item.label }}
+              </a>
+            }
+          </div>
+        </div>
+      }
+    </nav>
+
+    <div class="relative mt-auto border-t border-white/15 pt-4">
+      <div class="rounded-xl bg-black/15 px-3 py-3">
+        <p class="truncate text-sm font-semibold">{{ auth.user()?.name || 'User' }}</p>
+        <p class="truncate text-xs text-teal-50/70">{{ auth.user()?.email }}</p>
+      </div>
+      <p-button
+        class="mt-3 block"
+        label="Sign out"
+        icon="pi pi-sign-out"
+        [text]="true"
+        styleClass="w-full justify-start !text-teal-50/90 hover:!bg-white/10"
+        (onClick)="logout()"
+      />
+    </div>
+  </aside>
+
+  <div class="flex min-h-screen flex-col">
+    <header
+      class="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-[var(--gms-line)] bg-white/65 px-4 py-3 backdrop-blur-md sm:px-5 sm:py-4"
+    >
+      <div class="flex min-w-0 items-center gap-2">
+        <p-button
+          class="lg:hidden"
+          icon="pi pi-bars"
+          severity="secondary"
+          [text]="true"
+          [rounded]="true"
+          (onClick)="toggleSidebar()"
+          ariaLabel="Open menu"
+        />
+        <div class="min-w-0">
+          <p class="gms-page-kicker">{{ subtitle() }}</p>
+          <h1
+            class="font-display truncate text-xl tracking-tight text-[var(--gms-ink)] sm:text-2xl md:text-[1.7rem]"
+          >
+            {{ title() }}
+          </h1>
+        </div>
+      </div>
+    </header>
+
+    <main class="gms-enter flex-1 p-4 sm:p-5 md:p-8">
+      <router-outlet />
+    </main>
+  </div>
+</div>

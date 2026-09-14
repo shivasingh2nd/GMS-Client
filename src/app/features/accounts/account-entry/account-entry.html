@@ -1,0 +1,217 @@
+<div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+  <div>
+    <p class="gms-page-kicker">Personal accounts</p>
+    <p class="mt-1 max-w-xl text-sm text-[var(--gms-muted)]">
+      Record money you gave or received — like a personal Khatabook.
+    </p>
+  </div>
+  <div class="gms-page-actions">
+    <p-button
+      label="View ledger"
+      icon="pi pi-book"
+      severity="secondary"
+      [outlined]="true"
+      routerLink="/account-ledger"
+      [queryParams]="form.controls.partyId.value ? { partyId: form.controls.partyId.value } : {}"
+    />
+    <p-button label="Manage parties" icon="pi pi-users" routerLink="/parties" />
+  </div>
+</div>
+
+<div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+  <section class="gms-panel p-4 md:p-5">
+    <form class="flex flex-col gap-4" [formGroup]="form" (ngSubmit)="save()">
+      <div class="flex flex-wrap items-end justify-between gap-3">
+        <div class="gms-field-with-action min-w-[14rem] flex-1">
+          <label class="block min-w-0">
+            <span class="gms-field-label">Party</span>
+            <p-select
+              formControlName="partyId"
+              inputId="entryParty"
+              [options]="parties()"
+              optionLabel="name"
+              optionValue="_id"
+              placeholder="Select party"
+              [filter]="true"
+              filterPlaceholder="Search party"
+              appendTo="body"
+              styleClass="w-full gms-select"
+              panelStyleClass="gms-select-panel"
+              (onChange)="onPartyChange()"
+            />
+          </label>
+          <p-button
+            type="button"
+            icon="pi pi-plus"
+            severity="secondary"
+            styleClass="gms-icon-btn"
+            (onClick)="openPartyDialog(); $event.stopPropagation()"
+            ariaLabel="Add party"
+          />
+        </div>
+
+        @if (selectedPartyBalance(); as bal) {
+          <div class="gms-next-date min-w-[10rem]">
+            <p class="text-xs text-[var(--gms-muted)]">{{ bal.label }}</p>
+            <p
+              class="font-display text-lg"
+              [class.text-[var(--gms-teal-deep)]]="bal.tone === 'positive'"
+              [class.text-[#b94a43]]="bal.tone === 'negative'"
+            >
+              {{ bal.amount }}
+            </p>
+          </div>
+        }
+      </div>
+
+      <div>
+        <span class="gms-field-label">Entry type</span>
+        <div class="mt-1 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            class="gms-entry-type"
+            [class.is-active-debit]="form.controls.type.value === 'debit'"
+            (click)="setType('debit')"
+          >
+            <i class="pi pi-arrow-up-right"></i>
+            <span>
+              <strong>You gave</strong>
+              <small>Money lent or paid out</small>
+            </span>
+          </button>
+          <button
+            type="button"
+            class="gms-entry-type"
+            [class.is-active-credit]="form.controls.type.value === 'credit'"
+            (click)="setType('credit')"
+          >
+            <i class="pi pi-arrow-down-left"></i>
+            <span>
+              <strong>You got</strong>
+              <small>Money received back</small>
+            </span>
+          </button>
+        </div>
+      </div>
+
+      <div class="grid gap-4 sm:grid-cols-2">
+        <label class="block">
+          <span class="gms-field-label">Date</span>
+          <p-datepicker
+            formControlName="date"
+            inputId="entryDate"
+            dateFormat="dd/mm/yy"
+            [showIcon]="true"
+            appendTo="body"
+            styleClass="w-full"
+            inputStyleClass="w-full"
+          />
+        </label>
+        <label class="block">
+          <span class="gms-field-label">Amount</span>
+          <p-inputnumber
+            formControlName="amount"
+            inputId="entryAmount"
+            mode="currency"
+            currency="INR"
+            locale="en-IN"
+            [min]="1"
+            styleClass="w-full"
+            inputStyleClass="w-full"
+          />
+        </label>
+      </div>
+
+      <label class="block">
+        <span class="gms-field-label">Particular</span>
+        <input pInputText class="w-full" formControlName="particular" placeholder="Optional note" />
+      </label>
+
+      <div class="flex justify-end pt-1">
+        <p-button type="submit" label="Save entry" icon="pi pi-check" [loading]="saving()" />
+      </div>
+    </form>
+  </section>
+
+  <aside class="gms-panel p-4">
+    <p class="gms-page-kicker">Today for party</p>
+    @if (!form.controls.partyId.value) {
+      <p class="mt-3 text-sm text-[var(--gms-muted)]">Select a party to see today's entries.</p>
+    } @else if (loadingRecent()) {
+      <p class="mt-3 text-sm text-[var(--gms-muted)]">Loading…</p>
+    } @else if (recentEntries().length === 0) {
+      <p class="mt-3 text-sm text-[var(--gms-muted)]">No entries for this date yet.</p>
+    } @else {
+      <ul class="mt-3 space-y-2">
+        @for (entry of recentEntries(); track entry._id) {
+          <li class="rounded-lg border border-[var(--gms-line)] bg-[#f7fafa] px-3 py-2">
+            <div class="flex items-center justify-between gap-2">
+              <span
+                class="text-xs font-semibold uppercase tracking-wide"
+                [class.text-[#b94a43]]="entry.type === 'debit'"
+                [class.text-[var(--gms-teal-deep)]]="entry.type === 'credit'"
+              >
+                {{ entryLabel(entry) }}
+              </span>
+              <span class="font-semibold">{{ formatAmount(entry.amount) }}</span>
+            </div>
+            @if (entry.particular) {
+              <p class="mt-1 text-xs text-[var(--gms-muted)]">{{ entry.particular }}</p>
+            }
+          </li>
+        }
+      </ul>
+    }
+  </aside>
+</div>
+
+<p-dialog
+  header="Add party"
+  [modal]="true"
+  [style]="{ width: 'min(32rem, 94vw)' }"
+  [draggable]="false"
+  [resizable]="false"
+  [dismissableMask]="true"
+  styleClass="gms-dialog"
+  [visible]="partyDialogVisible()"
+  (visibleChange)="partyDialogVisible.set($event)"
+>
+  <form class="gms-dialog-body" [formGroup]="partyForm" (ngSubmit)="saveParty()">
+    <label class="block">
+      <span class="gms-field-label">Name</span>
+      <input pInputText class="w-full" formControlName="name" />
+    </label>
+    <label class="block">
+      <span class="gms-field-label">Phone</span>
+      <input pInputText class="w-full" formControlName="phone" />
+    </label>
+    <label class="block">
+      <span class="gms-field-label">Opening balance</span>
+      <p-inputnumber
+        formControlName="openingBalance"
+        mode="currency"
+        currency="INR"
+        locale="en-IN"
+        styleClass="w-full"
+        inputStyleClass="w-full"
+      />
+      <small class="mt-1 block text-xs text-[var(--gms-muted)]">
+        Positive = they'll pay you. Negative = you owe them.
+      </small>
+    </label>
+    <label class="block">
+      <span class="gms-field-label">Notes</span>
+      <textarea pTextarea class="w-full" rows="2" formControlName="notes"></textarea>
+    </label>
+    <div class="gms-dialog-actions">
+      <p-button
+        type="button"
+        label="Cancel"
+        severity="secondary"
+        [text]="true"
+        (onClick)="partyDialogVisible.set(false)"
+      />
+      <p-button type="submit" label="Save" icon="pi pi-check" [loading]="savingParty()" />
+    </div>
+  </form>
+</p-dialog>

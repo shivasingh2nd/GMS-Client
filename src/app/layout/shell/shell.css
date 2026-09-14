@@ -1,0 +1,9 @@
+:host {
+  display: block;
+}
+
+@media (min-width: 1024px) {
+  .gms-sidebar {
+    transform: none !important;
+  }
+}

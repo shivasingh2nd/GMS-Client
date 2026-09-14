@@ -1,0 +1,146 @@
+<div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+  <div>
+    <p class="gms-page-kicker">Master data</p>
+    <p class="mt-1 max-w-xl text-sm text-[var(--gms-muted)]">
+      Each distributor belongs to a single company.
+    </p>
+  </div>
+  <p-button label="Add distributor" icon="pi pi-plus" (onClick)="openCreate()" />
+</div>
+
+<div class="gms-table-wrap">
+  <p-table
+    [value]="rows()"
+    [loading]="loading()"
+    [paginator]="rows().length > 8"
+    [rows]="8"
+    styleClass="p-datatable-sm gms-datatable"
+  >
+    <ng-template #header>
+      <tr>
+        <th style="min-width: 10rem">Distributor</th>
+        <th style="min-width: 8rem">Company</th>
+        <th style="min-width: 9rem">Phone</th>
+        <th style="min-width: 14rem">Address</th>
+        <th style="width: 9rem" class="text-right">Actions</th>
+      </tr>
+    </ng-template>
+    <ng-template #body let-row>
+      <tr>
+        <td>
+          <div class="flex items-center gap-3">
+            <span
+              class="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--gms-mist)] text-[var(--gms-teal-deep)]"
+            >
+              <i class="pi pi-truck text-sm"></i>
+            </span>
+            <span class="font-semibold text-[var(--gms-ink)]">{{ row.name }}</span>
+          </div>
+        </td>
+        <td>
+          <span class="gms-chip">{{ row.company }}</span>
+        </td>
+        <td class="text-[var(--gms-muted)]">{{ row.phone || '—' }}</td>
+        <td class="text-[var(--gms-muted)]">{{ row.address }}</td>
+        <td>
+          <div class="flex justify-end gap-1">
+            @if (partyIdFor(row._id); as partyId) {
+              <p-button
+                icon="pi pi-book"
+                severity="secondary"
+                [rounded]="true"
+                [text]="true"
+                [routerLink]="['/account-ledger']"
+                [queryParams]="{ partyId }"
+                ariaLabel="View party ledger"
+              />
+            }
+            <p-button
+              icon="pi pi-pencil"
+              severity="secondary"
+              [rounded]="true"
+              [text]="true"
+              (onClick)="openEdit(row)"
+              ariaLabel="Edit"
+            />
+            <p-button
+              icon="pi pi-trash"
+              severity="danger"
+              [rounded]="true"
+              [text]="true"
+              (onClick)="confirmDelete(row)"
+              ariaLabel="Delete"
+            />
+          </div>
+        </td>
+      </tr>
+    </ng-template>
+    <ng-template #emptymessage>
+      <tr>
+        <td colspan="5">
+          <div class="gms-empty">
+            <i class="pi pi-truck"></i>
+            <p class="font-medium text-[var(--gms-ink)]">No distributors yet</p>
+            <p class="text-sm">Add a distributor linked to HPCL, BPCL, or IOCL.</p>
+          </div>
+        </td>
+      </tr>
+    </ng-template>
+  </p-table>
+</div>
+
+<p-dialog
+  [header]="editingId() ? 'Edit distributor' : 'Add distributor'"
+  [modal]="true"
+  [style]="{ width: 'min(34rem, 94vw)' }"
+  [draggable]="false"
+  [resizable]="false"
+  [dismissableMask]="true"
+  [closeOnEscape]="true"
+  styleClass="gms-dialog"
+  [visible]="dialogVisible()"
+  (visibleChange)="dialogVisible.set($event)"
+>
+  <form class="gms-dialog-body" [formGroup]="form" (ngSubmit)="save()">
+    <p class="gms-dialog-lead">
+      Pick HPCL, BPCL, or IOCL. Soft-delete keeps historical DACs intact.
+    </p>
+    <label class="block">
+      <span class="gms-field-label">Company</span>
+      <p-select
+        formControlName="company"
+        inputId="distributorCompany"
+        [options]="companies"
+        placeholder="Select company"
+        appendTo="body"
+        styleClass="w-full gms-select"
+        panelStyleClass="gms-select-panel"
+      />
+    </label>
+    <label class="block">
+      <span class="gms-field-label">Name</span>
+      <input pInputText class="w-full" formControlName="name" />
+    </label>
+    <label class="block">
+      <span class="gms-field-label">Phone</span>
+      <input pInputText class="w-full" formControlName="phone" inputmode="tel" />
+      <p class="mt-1 text-xs text-[var(--gms-muted)]">
+        Syncs to the linked account party when filled.
+      </p>
+    </label>
+    <label class="block">
+      <span class="gms-field-label">Address</span>
+      <textarea pTextarea class="w-full" rows="3" formControlName="address"></textarea>
+    </label>
+    <div class="gms-dialog-actions">
+      <p-button
+        type="button"
+        label="Cancel"
+        severity="secondary"
+        [text]="true"
+        (onClick)="dialogVisible.set(false)"
+      />
+      <p-button type="submit" label="Save" icon="pi pi-check" [loading]="saving()" />
+    </div>
+  </form>
+</p-dialog>
