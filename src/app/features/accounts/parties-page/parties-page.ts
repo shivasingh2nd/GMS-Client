@@ -11,6 +11,7 @@ import { Textarea } from 'primeng/textarea';
 import { Party } from '../../../core/models/gms.models';
 import { PartyService } from '../../../core/services/api/party.service';
 import { formatAccountBalance } from '../../../core/utils/account-balance';
+import { toastMissingRequired } from '../../../core/utils/form-validation';
 
 @Component({
   selector: 'app-parties-page',
@@ -101,6 +102,7 @@ export class PartiesPage implements OnInit {
   save(): void {
     if (this.form.invalid) {
       this.form.markAllAsTouched();
+      toastMissingRequired(this.messages);
       return;
     }
     const v = this.form.getRawValue();

@@ -19,6 +19,7 @@ import { apiErrorMessage } from '../../../core/utils/api-error';
 import { dacBookingLabel, distributorOptionLabel } from '../../../core/utils/distributor';
 import { toIsoDate } from '../../../core/utils/date';
 import { downloadCsv, downloadPdf } from '../../../core/utils/export-report';
+import { toastMissingRequired } from '../../../core/utils/form-validation';
 
 interface DistributorOption {
   _id: string;
@@ -187,6 +188,7 @@ export class DacReportPage implements OnInit {
   save(): void {
     if (this.form.invalid) {
       this.form.markAllAsTouched();
+      toastMissingRequired(this.messages);
       return;
     }
     const id = this.editingId();

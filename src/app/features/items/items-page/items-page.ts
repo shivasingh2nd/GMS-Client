@@ -12,6 +12,7 @@ import { ItemService } from '../../../core/services/api/item.service';
 import { PurchaseService } from '../../../core/services/api/purchase.service';
 import { apiErrorMessage } from '../../../core/utils/api-error';
 import { formatCurrency } from '../../../core/utils/account-balance';
+import { toastMissingRequired } from '../../../core/utils/form-validation';
 
 @Component({
   selector: 'app-items-page',
@@ -76,6 +77,7 @@ export class ItemsPage implements OnInit {
   save(): void {
     if (this.form.invalid) {
       this.form.markAllAsTouched();
+      toastMissingRequired(this.messages);
       return;
     }
     const v = this.form.getRawValue();

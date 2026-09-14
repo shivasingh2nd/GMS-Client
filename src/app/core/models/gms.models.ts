@@ -59,7 +59,7 @@ export interface CreateDacPayload {
   bookingDistributorId?: string;
   consumerNumber: string;
   consumer?: {
-    name: string;
+    name?: string;
     fatherName?: string;
     phone?: string;
     address?: string;

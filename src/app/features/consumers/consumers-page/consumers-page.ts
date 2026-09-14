@@ -13,6 +13,7 @@ import { ConsumerService } from '../../../core/services/api/consumer.service';
 import { DistributorService } from '../../../core/services/api/distributor.service';
 import { apiErrorMessage } from '../../../core/utils/api-error';
 import { consumerDistributorLabel } from '../../../core/utils/distributor';
+import { toastMissingRequired } from '../../../core/utils/form-validation';
 
 @Component({
   selector: 'app-consumers-page',
@@ -100,6 +101,7 @@ export class ConsumersPage implements OnInit {
   save(): void {
     if (this.form.invalid) {
       this.form.markAllAsTouched();
+      toastMissingRequired(this.messages);
       return;
     }
     const v = this.form.getRawValue();

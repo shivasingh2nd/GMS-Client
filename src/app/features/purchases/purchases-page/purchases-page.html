@@ -160,7 +160,7 @@
 
     <div class="grid gap-4 sm:grid-cols-2">
       <label class="block">
-        <span class="gms-field-label">Distributor</span>
+        <span class="gms-field-label">Distributor *</span>
         <p-select
           formControlName="distributor"
           [options]="distributors()"
@@ -174,7 +174,7 @@
         />
       </label>
       <label class="block">
-        <span class="gms-field-label">Purchase date</span>
+        <span class="gms-field-label">Purchase date *</span>
         <p-datepicker
           formControlName="purchaseDate"
           dateFormat="dd/mm/yy"
@@ -211,7 +211,7 @@
 
     <div>
       <div class="mb-2 flex items-center justify-between">
-        <span class="gms-field-label">Items</span>
+        <span class="gms-field-label">Items *</span>
         <p-button type="button" label="Add line" icon="pi pi-plus" severity="secondary" [text]="true" (onClick)="addItem()" />
       </div>
       <div class="space-y-3" formArrayName="items">
@@ -219,7 +219,7 @@
           <div class="rounded-lg border border-[var(--gms-line)] bg-[#f7fafa] p-3" [formGroupName]="i">
             <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_5.5rem_7rem_7.5rem_auto]">
               <label class="block min-w-0">
-                <span class="gms-field-label">Item</span>
+                <span class="gms-field-label">Item *</span>
                 <p-select
                   formControlName="item"
                   [options]="stockItems()"
@@ -234,7 +234,7 @@
                 />
               </label>
               <label class="block">
-                <span class="gms-field-label">Qty</span>
+                <span class="gms-field-label">Qty *</span>
                 <p-inputnumber
                   formControlName="quantity"
                   [min]="0.01"
@@ -246,7 +246,7 @@
                 />
               </label>
               <label class="block">
-                <span class="gms-field-label">Rate</span>
+                <span class="gms-field-label">Rate *</span>
                 <p-inputnumber
                   formControlName="rate"
                   mode="currency"
@@ -294,7 +294,7 @@
     @if (!editingId() && form.controls.payNow.value) {
       <div class="grid gap-4 sm:grid-cols-2">
         <label class="block">
-          <span class="gms-field-label">Payment particulars</span>
+          <span class="gms-field-label">Payment particulars *</span>
           <input
             pInputText
             class="w-full"
@@ -303,7 +303,7 @@
           />
         </label>
         <label class="block">
-          <span class="gms-field-label">Payment amount</span>
+          <span class="gms-field-label">Payment amount *</span>
           <p-inputnumber
             formControlName="paymentAmount"
             mode="currency"

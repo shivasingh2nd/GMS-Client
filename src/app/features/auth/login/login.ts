@@ -8,6 +8,7 @@ import { Password } from 'primeng/password';
 import { Toast } from 'primeng/toast';
 import { AuthService } from '../../../core/services/auth.service';
 import { apiErrorMessage } from '../../../core/utils/api-error';
+import { toastMissingRequired } from '../../../core/utils/form-validation';
 
 @Component({
   selector: 'app-login',
@@ -31,6 +32,7 @@ export class LoginPage {
   submit(): void {
     if (this.form.invalid) {
       this.form.markAllAsTouched();
+      toastMissingRequired(this.messages);
       return;
     }
 

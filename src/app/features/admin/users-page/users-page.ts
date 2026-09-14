@@ -11,6 +11,7 @@ import { User } from '../../../core/models/gms.models';
 import { UserService } from '../../../core/services/api/user.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { apiErrorMessage } from '../../../core/utils/api-error';
+import { toastMissingRequired } from '../../../core/utils/form-validation';
 
 @Component({
   selector: 'app-users-page',
@@ -47,6 +48,7 @@ export class UsersPage implements OnInit {
   save(): void {
     if (this.form.invalid) {
       this.form.markAllAsTouched();
+      toastMissingRequired(this.messages);
       return;
     }
     const v = this.form.getRawValue();

@@ -76,15 +76,15 @@
 >
   <form class="gms-dialog-body" [formGroup]="form" (ngSubmit)="save()">
     <label class="block">
-      <span class="gms-field-label">Name</span>
+      <span class="gms-field-label">Name *</span>
       <input pInputText class="w-full" formControlName="name" />
     </label>
     <label class="block">
-      <span class="gms-field-label">Email</span>
+      <span class="gms-field-label">Email *</span>
       <input pInputText class="w-full" type="email" formControlName="email" />
     </label>
     <label class="block">
-      <span class="gms-field-label">Password</span>
+      <span class="gms-field-label">Password *</span>
       <p-password
         formControlName="password"
         [feedback]="true"

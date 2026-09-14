@@ -258,7 +258,7 @@
 >
   <form class="gms-dialog-body" [formGroup]="editForm" (ngSubmit)="saveEdit()">
     <label class="block">
-      <span class="gms-field-label">Type</span>
+      <span class="gms-field-label">Type *</span>
       <p-select
         formControlName="type"
         [options]="[
@@ -273,7 +273,7 @@
       />
     </label>
     <label class="block">
-      <span class="gms-field-label">Date</span>
+      <span class="gms-field-label">Date *</span>
       <p-datepicker
         formControlName="date"
         dateFormat="dd/mm/yy"
@@ -284,7 +284,7 @@
       />
     </label>
     <label class="block">
-      <span class="gms-field-label">Amount</span>
+      <span class="gms-field-label">Amount *</span>
       <p-inputnumber
         formControlName="amount"
         mode="currency"

@@ -20,6 +20,7 @@ import {
   formatCurrency,
 } from '../../../core/utils/account-balance';
 import { toIsoDate } from '../../../core/utils/date';
+import { toastMissingRequired } from '../../../core/utils/form-validation';
 
 @Component({
   selector: 'app-account-entry',
@@ -101,6 +102,7 @@ export class AccountEntryPage implements OnInit {
   saveParty(): void {
     if (this.partyForm.invalid) {
       this.partyForm.markAllAsTouched();
+      toastMissingRequired(this.messages);
       return;
     }
     const v = this.partyForm.getRawValue();
@@ -133,6 +135,7 @@ export class AccountEntryPage implements OnInit {
   save(): void {
     if (this.form.invalid) {
       this.form.markAllAsTouched();
+      toastMissingRequired(this.messages);
       return;
     }
     const v = this.form.getRawValue();

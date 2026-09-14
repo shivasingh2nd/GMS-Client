@@ -18,12 +18,14 @@ import { PreferencesService } from '../../../core/services/preferences.service';
 import {
   Consumer,
   ConsumerLookupResult,
+  CreateDacPayload,
   Dac,
   Distributor,
 } from '../../../core/models/gms.models';
 import { apiErrorMessage } from '../../../core/utils/api-error';
 import { formatCurrency } from '../../../core/utils/account-balance';
 import { toIsoDate } from '../../../core/utils/date';
+import { toastMissingRequired } from '../../../core/utils/form-validation';
 
 type LookupState = 'idle' | 'found' | 'missing';
 
@@ -31,6 +33,12 @@ interface DistributorOption {
   _id: string;
   name: string;
   label: string;
+}
+
+interface IncompleteConsumerFields {
+  fatherName: boolean;
+  phone: boolean;
+  address: boolean;
 }
 
 @Component({
@@ -65,8 +73,18 @@ export class DacEntryPage implements OnInit {
   readonly intervalBlocked = signal(false);
   readonly recentDacs = signal<Dac[]>([]);
   readonly loadingRecent = signal(false);
+  readonly incompleteConsumerFields = signal<IncompleteConsumerFields>({
+    fatherName: false,
+    phone: false,
+    address: false,
+  });
 
   readonly paymentMethods = ['Cash', 'UPI', 'Card', 'Bank Transfer', 'Other'];
+
+  readonly hasIncompleteConsumerFields = computed(() => {
+    const fields = this.incompleteConsumerFields();
+    return fields.fatherName || fields.phone || fields.address;
+  });
 
   readonly form = this.fb.nonNullable.group({
     distributorId: ['', Validators.required],
@@ -182,6 +200,7 @@ export class DacEntryPage implements OnInit {
     if (!distributorId || !consumerNumber) {
       this.form.controls.distributorId.markAsTouched();
       this.form.controls.consumerNumber.markAsTouched();
+      toastMissingRequired(this.messages);
       return;
     }
 
@@ -190,19 +209,35 @@ export class DacEntryPage implements OnInit {
       next: (result) => {
         this.lookingUp.set(false);
         this.lookupResult.set(result);
+        this.form.patchValue({
+          consumerName: '',
+          fatherName: '',
+          phone: '',
+          address: '',
+        });
         if (result.found && result.consumer) {
           this.lookupState.set('found');
           this.form.controls.consumerName.clearValidators();
+          this.setIncompleteConsumerFields(result.consumer);
           this.applyIntervalGate(result);
         } else {
           this.lookupState.set('missing');
           this.intervalBlocked.set(false);
+          this.incompleteConsumerFields.set({
+            fatherName: true,
+            phone: true,
+            address: true,
+          });
           this.form.controls.consumerName.setValidators([Validators.required]);
         }
         this.form.controls.consumerName.updateValueAndValidity();
         queueMicrotask(() => {
           const el = document.getElementById(
-            result.found ? 'dacNumber' : 'consumerName',
+            result.found
+              ? this.hasIncompleteConsumerFields()
+                ? this.firstIncompleteFieldId()
+                : 'dacNumber'
+              : 'consumerName',
           );
           el?.focus();
         });
@@ -235,10 +270,12 @@ export class DacEntryPage implements OnInit {
 
     if (this.form.invalid) {
       this.form.markAllAsTouched();
+      toastMissingRequired(this.messages);
       return;
     }
 
     const v = this.form.getRawValue();
+    const consumerPayload = this.buildConsumerPayload(v);
     const payload = {
       distributorId: v.distributorId,
       bookingDistributorId: v.bookingDistributorId,
@@ -250,16 +287,7 @@ export class DacEntryPage implements OnInit {
       deliveryDone: v.deliveryDone,
       intervalDays: Number(v.intervalDays),
       remarks: v.remarks.trim() || undefined,
-      ...(this.lookupState() === 'missing'
-        ? {
-            consumer: {
-              name: v.consumerName.trim(),
-              fatherName: v.fatherName.trim() || undefined,
-              phone: v.phone.trim() || undefined,
-              address: v.address.trim() || undefined,
-            },
-          }
-        : {}),
+      ...(consumerPayload ? { consumer: consumerPayload } : {}),
     };
 
     this.submitting.set(true);
@@ -371,8 +399,62 @@ export class DacEntryPage implements OnInit {
     this.lookupState.set('idle');
     this.lookupResult.set(null);
     this.intervalBlocked.set(false);
+    this.incompleteConsumerFields.set({
+      fatherName: false,
+      phone: false,
+      address: false,
+    });
     this.form.controls.consumerName.clearValidators();
     this.form.controls.consumerName.updateValueAndValidity();
+  }
+
+  private setIncompleteConsumerFields(consumer: Consumer): void {
+    this.incompleteConsumerFields.set({
+      fatherName: !consumer.fatherName?.trim(),
+      phone: !consumer.phone?.trim(),
+      address: !consumer.address?.trim(),
+    });
+  }
+
+  private firstIncompleteFieldId(): string {
+    const fields = this.incompleteConsumerFields();
+    if (fields.fatherName) return 'fatherName';
+    if (fields.phone) return 'phone';
+    if (fields.address) return 'address';
+    return 'dacNumber';
+  }
+
+  private buildConsumerPayload(v: {
+    consumerName: string;
+    fatherName: string;
+    phone: string;
+    address: string;
+  }): CreateDacPayload['consumer'] | null {
+    if (this.lookupState() === 'missing') {
+      return {
+        name: v.consumerName.trim(),
+        fatherName: v.fatherName.trim() || undefined,
+        phone: v.phone.trim() || undefined,
+        address: v.address.trim() || undefined,
+      };
+    }
+
+    if (this.lookupState() !== 'found' || !this.hasIncompleteConsumerFields()) {
+      return null;
+    }
+
+    const incomplete = this.incompleteConsumerFields();
+    const updates: NonNullable<CreateDacPayload['consumer']> = {};
+    if (incomplete.fatherName && v.fatherName.trim()) {
+      updates.fatherName = v.fatherName.trim();
+    }
+    if (incomplete.phone && v.phone.trim()) {
+      updates.phone = v.phone.trim();
+    }
+    if (incomplete.address && v.address.trim()) {
+      updates.address = v.address.trim();
+    }
+    return Object.keys(updates).length ? updates : null;
   }
 
   private resetAfterSuccess(): void {

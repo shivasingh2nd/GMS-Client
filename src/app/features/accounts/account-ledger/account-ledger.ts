@@ -1,5 +1,5 @@
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
-import { FormBuilder, FormsModule, ReactiveFormsModule } from '@angular/forms';
+import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ConfirmationService, MessageService } from 'primeng/api';
 import { Button } from 'primeng/button';
@@ -35,6 +35,7 @@ import {
   startOfMonth,
   toIsoDate,
 } from '../../../core/utils/date';
+import { toastMissingRequired } from '../../../core/utils/form-validation';
 
 interface LedgerDisplayRow {
   entry: AccountEntry;
@@ -83,9 +84,9 @@ export class AccountLedgerPage implements OnInit {
   toDate: Date = endOfMonth(new Date());
 
   readonly editForm = this.fb.nonNullable.group({
-    type: ['debit' as AccountEntryType],
-    date: [new Date() as Date],
-    amount: [null as number | null],
+    type: ['debit' as AccountEntryType, Validators.required],
+    date: [new Date() as Date, Validators.required],
+    amount: [null as number | null, Validators.required],
     particular: [''],
   });
 
@@ -221,6 +222,11 @@ export class AccountLedgerPage implements OnInit {
   saveEdit(): void {
     const id = this.editingEntryId();
     if (!id) return;
+    if (this.editForm.invalid) {
+      this.editForm.markAllAsTouched();
+      toastMissingRequired(this.messages);
+      return;
+    }
     const v = this.editForm.getRawValue();
     this.saving.set(true);
     this.entriesApi

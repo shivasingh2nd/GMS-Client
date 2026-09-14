@@ -13,6 +13,7 @@ import { DistributorService } from '../../../core/services/api/distributor.servi
 import { PartyService } from '../../../core/services/api/party.service';
 import { apiErrorMessage } from '../../../core/utils/api-error';
 import { distributorIdFromParty } from '../../../core/utils/distributor';
+import { toastMissingRequired } from '../../../core/utils/form-validation';
 
 @Component({
   selector: 'app-distributors-page',
@@ -84,6 +85,7 @@ export class DistributorsPage implements OnInit {
   save(): void {
     if (this.form.invalid) {
       this.form.markAllAsTouched();
+      toastMissingRequired(this.messages);
       return;
     }
     const v = this.form.getRawValue();

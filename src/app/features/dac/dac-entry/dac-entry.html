@@ -14,8 +14,8 @@
     >
     <span
       class="gms-step"
-      [class.is-active]="lookupState() === 'missing'"
-      [class.is-done]="lookupState() === 'found'"
+      [class.is-active]="lookupState() === 'missing' || (lookupState() === 'found' && hasIncompleteConsumerFields())"
+      [class.is-done]="lookupState() === 'found' && !hasIncompleteConsumerFields()"
       >2 · Consumer</span
     >
     <span class="gms-step" [class.is-active]="lookupState() !== 'idle'">3 · DAC</span>
@@ -37,7 +37,7 @@
     <div class="mt-5 grid gap-4">
       <div class="gms-field-with-action">
         <label class="block min-w-0">
-          <span class="gms-field-label">Consumer distributor</span>
+          <span class="gms-field-label">Consumer distributor *</span>
           <p-select
             formControlName="distributorId"
             inputId="distributorId"
@@ -77,7 +77,7 @@
 
       <div class="gms-field-with-action">
         <label class="block min-w-0">
-          <span class="gms-field-label">Consumer number</span>
+          <span class="gms-field-label">Consumer number *</span>
           <input
             id="consumerNumber"
             pInputText
@@ -120,6 +120,37 @@
           </div>
         }
       </div>
+
+      @if (hasIncompleteConsumerFields()) {
+        <div class="gms-reveal gms-status gms-status-missing mt-4">
+          <p class="text-xs font-semibold uppercase tracking-wide text-[var(--gms-teal-deep)]">
+            Complete consumer details
+          </p>
+          <p class="mt-1 text-sm text-[var(--gms-muted)]">
+            Some details are missing — fill them in if you want (optional).
+          </p>
+          <div class="mt-4 grid gap-4 md:grid-cols-2">
+            @if (incompleteConsumerFields().fatherName) {
+              <label class="block">
+                <span class="gms-field-label">Father name</span>
+                <input id="fatherName" pInputText class="w-full" formControlName="fatherName" />
+              </label>
+            }
+            @if (incompleteConsumerFields().phone) {
+              <label class="block">
+                <span class="gms-field-label">Phone</span>
+                <input id="phone" pInputText class="w-full" formControlName="phone" />
+              </label>
+            }
+            @if (incompleteConsumerFields().address) {
+              <label class="block md:col-span-2">
+                <span class="gms-field-label">Address</span>
+                <textarea id="address" pTextarea class="w-full" rows="2" formControlName="address"></textarea>
+              </label>
+            }
+          </div>
+        </div>
+      }
     }
 
     @if (intervalBlocked()) {
@@ -141,15 +172,15 @@
           </label>
           <label class="block">
             <span class="gms-field-label">Father name</span>
-            <input pInputText class="w-full" formControlName="fatherName" />
+            <input id="fatherName" pInputText class="w-full" formControlName="fatherName" />
           </label>
           <label class="block">
             <span class="gms-field-label">Phone</span>
-            <input pInputText class="w-full" formControlName="phone" />
+            <input id="phone" pInputText class="w-full" formControlName="phone" />
           </label>
           <label class="block md:col-span-2">
             <span class="gms-field-label">Address</span>
-            <textarea pTextarea class="w-full" rows="2" formControlName="address"></textarea>
+            <textarea id="address" pTextarea class="w-full" rows="2" formControlName="address"></textarea>
           </label>
         </div>
       </div>
@@ -173,7 +204,7 @@
       <div class="mt-5 grid gap-4 md:grid-cols-2">
         <div class="gms-field-with-action md:col-span-2">
           <label class="block min-w-0">
-            <span class="gms-field-label">DAC booking distributor</span>
+            <span class="gms-field-label">DAC booking distributor *</span>
             <p-select
               formControlName="bookingDistributorId"
               inputId="bookingDistributorId"
@@ -212,11 +243,11 @@
         </div>
 
         <label class="block">
-          <span class="gms-field-label">DAC number</span>
+          <span class="gms-field-label">DAC number *</span>
           <input id="dacNumber" pInputText class="w-full" formControlName="dacNumber" />
         </label>
         <label class="block">
-          <span class="gms-field-label">DAC date</span>
+          <span class="gms-field-label">DAC date *</span>
           <p-datepicker
             formControlName="dacDate"
             inputId="dacDate"
@@ -228,7 +259,7 @@
           />
         </label>
         <label class="block">
-          <span class="gms-field-label">Payment method</span>
+          <span class="gms-field-label">Payment method *</span>
           <p-select
             formControlName="paymentMethod"
             inputId="paymentMethod"
@@ -239,7 +270,7 @@
           />
         </label>
         <label class="block">
-          <span class="gms-field-label">Amount</span>
+          <span class="gms-field-label">Amount *</span>
           <p-inputnumber
             formControlName="amount"
             inputId="amount"
@@ -251,7 +282,7 @@
           />
         </label>
         <label class="block">
-          <span class="gms-field-label">Interval days</span>
+          <span class="gms-field-label">Interval days *</span>
           <p-inputnumber
             formControlName="intervalDays"
             inputId="intervalDays"

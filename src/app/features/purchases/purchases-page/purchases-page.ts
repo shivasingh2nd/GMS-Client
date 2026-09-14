@@ -28,6 +28,7 @@ import { formatCurrency } from '../../../core/utils/account-balance';
 import { distributorOptionLabel } from '../../../core/utils/distributor';
 import { endOfMonth, startOfMonth, toIsoDate } from '../../../core/utils/date';
 import { downloadCsv, downloadPdf, ExportCell } from '../../../core/utils/export-report';
+import { toastMissingRequired } from '../../../core/utils/form-validation';
 
 interface DistributorOption {
   _id: string;
@@ -234,13 +235,13 @@ export class PurchasesPage implements OnInit {
 
     const distributor = this.form.controls.distributor.value;
     if (!distributor) {
-      this.messages.add({ severity: 'warn', summary: 'Select a distributor' });
+      toastMissingRequired(this.messages);
       return;
     }
 
     const purchaseDate = this.form.controls.purchaseDate.value;
     if (!purchaseDate) {
-      this.messages.add({ severity: 'warn', summary: 'Select purchase date' });
+      toastMissingRequired(this.messages);
       return;
     }
 

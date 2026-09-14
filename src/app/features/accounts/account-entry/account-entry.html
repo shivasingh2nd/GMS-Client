@@ -24,7 +24,7 @@
       <div class="flex flex-wrap items-end justify-between gap-3">
         <div class="gms-field-with-action min-w-[14rem] flex-1">
           <label class="block min-w-0">
-            <span class="gms-field-label">Party</span>
+            <span class="gms-field-label">Party *</span>
             <p-select
               formControlName="partyId"
               inputId="entryParty"
@@ -65,7 +65,7 @@
       </div>
 
       <div>
-        <span class="gms-field-label">Entry type</span>
+        <span class="gms-field-label">Entry type *</span>
         <div class="mt-1 grid grid-cols-2 gap-2">
           <button
             type="button"
@@ -96,7 +96,7 @@
 
       <div class="grid gap-4 sm:grid-cols-2">
         <label class="block">
-          <span class="gms-field-label">Date</span>
+          <span class="gms-field-label">Date *</span>
           <p-datepicker
             formControlName="date"
             inputId="entryDate"
@@ -108,7 +108,7 @@
           />
         </label>
         <label class="block">
-          <span class="gms-field-label">Amount</span>
+          <span class="gms-field-label">Amount *</span>
           <p-inputnumber
             formControlName="amount"
             inputId="entryAmount"
@@ -178,7 +178,7 @@
 >
   <form class="gms-dialog-body" [formGroup]="partyForm" (ngSubmit)="saveParty()">
     <label class="block">
-      <span class="gms-field-label">Name</span>
+      <span class="gms-field-label">Name *</span>
       <input pInputText class="w-full" formControlName="name" />
     </label>
     <label class="block">
