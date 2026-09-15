@@ -68,12 +68,14 @@ body {
   }
 }
 
+/* `backwards` (not `both`): a lingering transform would turn these into the
+   containing block for any fixed-position descendant, e.g. dialog masks. */
 .gms-enter {
-  animation: gms-fade-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: gms-fade-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 .gms-reveal {
-  animation: gms-fade-up 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: gms-fade-up 0.35s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 .gms-panel {

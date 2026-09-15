@@ -42,6 +42,7 @@ export const appConfig: ApplicationConfig = {
     provideAnimationsAsync(),
     ...provideQueryClient(),
     providePrimeNG({
+      overlayAppendTo: 'body',
       theme: {
         preset: GmsPreset,
         options: {
