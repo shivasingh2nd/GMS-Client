@@ -1,4 +1,4 @@
-import { Component, computed, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { ConfirmationService, MessageService } from 'primeng/api';
@@ -12,19 +12,24 @@ import { TableModule } from 'primeng/table';
 import { Tag } from 'primeng/tag';
 import { Textarea } from 'primeng/textarea';
 import { Checkbox } from 'primeng/checkbox';
+import { lastValueFrom } from 'rxjs';
 import { Dac } from '../../../core/models/gms.models';
 import { DacService } from '../../../core/services/api/dac.service';
 import { DistributorService } from '../../../core/services/api/distributor.service';
+import {
+  injectMutation,
+  injectQuery,
+  injectQueryClient,
+  invalidateAfter,
+  queryKeys,
+  STALE,
+} from '../../../core/query';
 import { apiErrorMessage } from '../../../core/utils/api-error';
 import { dacBookingLabel, distributorOptionLabel } from '../../../core/utils/distributor';
 import { toIsoDate } from '../../../core/utils/date';
 import { downloadCsv, downloadPdf } from '../../../core/utils/export-report';
 import { toastMissingRequired } from '../../../core/utils/form-validation';
-
-interface DistributorOption {
-  _id: string;
-  label: string;
-}
+import { toUpperAlpha, UppercaseInputDirective } from '../../../shared/uppercase-input.directive';
 
 @Component({
   selector: 'app-dac-report',
@@ -41,22 +46,20 @@ interface DistributorOption {
     Tag,
     Textarea,
     Checkbox,
+    UppercaseInputDirective,
   ],
   templateUrl: './dac-report.html',
 })
-export class DacReportPage implements OnInit {
+export class DacReportPage {
   private readonly dacsApi = inject(DacService);
   private readonly distributorsApi = inject(DistributorService);
   private readonly route = inject(ActivatedRoute);
   private readonly fb = inject(FormBuilder);
   private readonly messages = inject(MessageService);
   private readonly confirm = inject(ConfirmationService);
+  private readonly queryClient = injectQueryClient();
 
-  readonly distributorOptions = signal<DistributorOption[]>([]);
-  readonly rows = signal<Dac[]>([]);
-  readonly loading = signal(false);
   readonly dialogVisible = signal(false);
-  readonly saving = signal(false);
   readonly editingId = signal<string | null>(null);
   readonly editingConsumerLabel = signal('');
 
@@ -65,6 +68,45 @@ export class DacReportPage implements OnInit {
   fromDate: Date = this.startOfToday();
   toDate: Date = this.startOfToday();
   distributorId: string | null = null;
+  consumerNumberFilter: string | null = null;
+
+  private readonly fromFilter = signal('');
+  private readonly toFilter = signal('');
+  private readonly distributorFilter = signal<string | undefined>(undefined);
+  private readonly consumerNumberQueryFilter = signal<string | undefined>(undefined);
+  private readonly searched = signal(false);
+
+  readonly distributorsQuery = injectQuery(() => ({
+    queryKey: queryKeys.distributors.list(),
+    queryFn: () => lastValueFrom(this.distributorsApi.list()),
+    staleTime: STALE.distributors,
+  }));
+
+  readonly dacsQuery = injectQuery(() => {
+    const filters = {
+      from: this.fromFilter(),
+      to: this.toFilter(),
+      distributor: this.distributorFilter(),
+      consumerNumber: this.consumerNumberQueryFilter(),
+    };
+    return {
+      queryKey: queryKeys.dacs.list(filters),
+      queryFn: () => lastValueFrom(this.dacsApi.list(filters)),
+      staleTime: STALE.dacs,
+      enabled: this.searched(),
+    };
+  });
+
+  readonly distributorOptions = computed(() =>
+    (this.distributorsQuery.data() ?? []).map((row) => ({
+      _id: row._id,
+      label: distributorOptionLabel(row),
+    })),
+  );
+  readonly rows = computed(() => this.dacsQuery.data() ?? []);
+  readonly loading = computed(
+    () => this.searched() && this.dacsQuery.isPending() && !this.dacsQuery.data(),
+  );
 
   readonly form = this.fb.nonNullable.group({
     bookingDistributorId: ['', Validators.required],
@@ -77,6 +119,51 @@ export class DacReportPage implements OnInit {
     remarks: [''],
   });
 
+  readonly updateMutation = injectMutation(() => ({
+    mutationFn: (input: {
+      id: string;
+      payload: {
+        bookingDistributorId: string;
+        dacNumber: string;
+        dacDate: string;
+        amount: number;
+        paymentMethod: string;
+        deliveryDone: boolean;
+        intervalDays: number;
+        remarks?: string;
+      };
+    }) => lastValueFrom(this.dacsApi.update(input.id, input.payload)),
+    onSuccess: async () => {
+      await invalidateAfter.dac(this.queryClient);
+      this.dialogVisible.set(false);
+      this.messages.add({ severity: 'success', summary: 'DAC updated' });
+    },
+    onError: (err) => {
+      this.messages.add({
+        severity: 'error',
+        summary: 'Could not update DAC',
+        detail: apiErrorMessage(err),
+      });
+    },
+  }));
+
+  readonly deleteMutation = injectMutation(() => ({
+    mutationFn: (id: string) => lastValueFrom(this.dacsApi.remove(id)),
+    onSuccess: async () => {
+      await invalidateAfter.dac(this.queryClient);
+      this.messages.add({ severity: 'success', summary: 'DAC deleted' });
+    },
+    onError: (err) => {
+      this.messages.add({
+        severity: 'error',
+        summary: 'Could not delete DAC',
+        detail: apiErrorMessage(err),
+      });
+    },
+  }));
+
+  readonly saving = computed(() => this.updateMutation.isPending());
+
   readonly totalAmount = computed(() =>
     this.rows().reduce((sum, row) => sum + (Number(row.amount) || 0), 0),
   );
@@ -85,24 +172,12 @@ export class DacReportPage implements OnInit {
     () => this.rows().filter((row) => row.deliveryDone).length,
   );
 
-  consumerNumberFilter: string | null = null;
-
-  ngOnInit(): void {
+  constructor() {
     const qp = this.route.snapshot.queryParamMap;
     const distributor = qp.get('distributor');
     const consumerNumber = qp.get('consumerNumber');
     if (distributor) this.distributorId = distributor;
     if (consumerNumber) this.consumerNumberFilter = consumerNumber;
-
-    this.distributorsApi.list().subscribe({
-      next: (rows) =>
-        this.distributorOptions.set(
-          rows.map((row) => ({
-            _id: row._id,
-            label: distributorOptionLabel(row),
-          })),
-        ),
-    });
     this.search();
   }
 
@@ -125,28 +200,11 @@ export class DacReportPage implements OnInit {
       return;
     }
 
-    this.loading.set(true);
-    this.dacsApi
-      .list({
-        from: toIsoDate(this.fromDate),
-        to: toIsoDate(this.toDate),
-        distributor: this.distributorId || undefined,
-        consumerNumber: this.consumerNumberFilter || undefined,
-      })
-      .subscribe({
-        next: (rows) => {
-          this.rows.set(rows);
-          this.loading.set(false);
-        },
-        error: (err) => {
-          this.loading.set(false);
-          this.messages.add({
-            severity: 'error',
-            summary: 'Failed to load DAC report',
-            detail: apiErrorMessage(err),
-          });
-        },
-      });
+    this.fromFilter.set(toIsoDate(this.fromDate));
+    this.toFilter.set(toIsoDate(this.toDate));
+    this.distributorFilter.set(this.distributorId || undefined);
+    this.consumerNumberQueryFilter.set(this.consumerNumberFilter || undefined);
+    this.searched.set(true);
   }
 
   resetToday(): void {
@@ -181,7 +239,7 @@ export class DacReportPage implements OnInit {
       acceptLabel: 'Delete',
       rejectLabel: 'Cancel',
       acceptIcon: 'pi pi-trash',
-      accept: () => this.remove(row._id),
+      accept: () => this.deleteMutation.mutate(row._id),
     });
   }
 
@@ -195,34 +253,19 @@ export class DacReportPage implements OnInit {
     if (!id) return;
 
     const v = this.form.getRawValue();
-    this.saving.set(true);
-    this.dacsApi
-      .update(id, {
+    this.updateMutation.mutate({
+      id,
+      payload: {
         bookingDistributorId: v.bookingDistributorId,
-        dacNumber: v.dacNumber.trim(),
+        dacNumber: toUpperAlpha(v.dacNumber.trim()),
         dacDate: toIsoDate(v.dacDate),
         amount: Number(v.amount),
         paymentMethod: v.paymentMethod,
         deliveryDone: v.deliveryDone,
         intervalDays: Number(v.intervalDays),
-        remarks: v.remarks.trim() || undefined,
-      })
-      .subscribe({
-        next: () => {
-          this.saving.set(false);
-          this.dialogVisible.set(false);
-          this.messages.add({ severity: 'success', summary: 'DAC updated' });
-          this.search();
-        },
-        error: (err) => {
-          this.saving.set(false);
-          this.messages.add({
-            severity: 'error',
-            summary: 'Could not update DAC',
-            detail: err?.error?.message || 'Request failed',
-          });
-        },
-      });
+        remarks: v.remarks.trim() ? toUpperAlpha(v.remarks.trim()) : undefined,
+      },
+    });
   }
 
   nextDate(row: Dac): Date | null {
@@ -238,6 +281,16 @@ export class DacReportPage implements OnInit {
       return `${row.consumer.consumerNumber} · ${row.consumer.name}`;
     }
     return '—';
+  }
+
+  consumerNumber(row: Dac): string {
+    return typeof row.consumer === 'object' && row.consumer
+      ? row.consumer.consumerNumber
+      : '—';
+  }
+
+  consumerName(row: Dac): string {
+    return typeof row.consumer === 'object' && row.consumer ? row.consumer.name : '—';
   }
 
   distributorLabel(row: Dac): string {
@@ -286,14 +339,18 @@ export class DacReportPage implements OnInit {
       return null;
     }
 
+    const from = this.fromFilter() || toIsoDate(this.fromDate);
+    const to = this.toFilter() || toIsoDate(this.toDate);
+
     return {
       title: 'DAC Report',
-      subtitle: `${toIsoDate(this.fromDate)} to ${toIsoDate(this.toDate)} · ${rows.length} DACs · Total ${this.formatAmount(this.totalAmount())}`,
+      subtitle: `${from} to ${to} · ${rows.length} DACs · Total ${this.formatAmount(this.totalAmount())}`,
       headers: [
         'DAC date',
         'Next date',
         'DAC no.',
-        'Consumer',
+        'Consumer no.',
+        'Name',
         'Booking distributor',
         'Payment',
         'Amount',
@@ -304,31 +361,16 @@ export class DacReportPage implements OnInit {
         this.formatDate(row.dacDate),
         this.formatDate(this.nextDate(row)),
         row.dacNumber,
-        this.consumerLabel(row),
+        this.consumerNumber(row),
+        this.consumerName(row),
         this.distributorLabel(row),
         row.paymentMethod,
         row.amount,
         row.deliveryDone ? 'Delivered' : 'Pending',
         row.remarks || '',
       ]),
-      filename: `dac-report-${toIsoDate(this.fromDate)}-${toIsoDate(this.toDate)}`,
+      filename: `dac-report-${from}-${to}`,
     };
-  }
-
-  private remove(id: string): void {
-    this.dacsApi.remove(id).subscribe({
-      next: () => {
-        this.messages.add({ severity: 'success', summary: 'DAC deleted' });
-        this.search();
-      },
-      error: (err) => {
-        this.messages.add({
-          severity: 'error',
-          summary: 'Could not delete DAC',
-          detail: err?.error?.message || 'Request failed',
-        });
-      },
-    });
   }
 
   private startOfToday(): Date {
@@ -342,5 +384,4 @@ export class DacReportPage implements OnInit {
     d.setHours(0, 0, 0, 0);
     return d;
   }
-
 }

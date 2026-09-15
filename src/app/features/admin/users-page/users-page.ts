@@ -1,4 +1,4 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ConfirmationService, MessageService } from 'primeng/api';
 import { Button } from 'primeng/button';
@@ -7,28 +7,56 @@ import { InputText } from 'primeng/inputtext';
 import { Password } from 'primeng/password';
 import { TableModule } from 'primeng/table';
 import { Tag } from 'primeng/tag';
+import { lastValueFrom } from 'rxjs';
 import { User } from '../../../core/models/gms.models';
 import { UserService } from '../../../core/services/api/user.service';
 import { AuthService } from '../../../core/services/auth.service';
+import {
+  injectMutation,
+  injectQuery,
+  injectQueryClient,
+  invalidateAfter,
+  queryKeys,
+  STALE,
+} from '../../../core/query';
 import { apiErrorMessage } from '../../../core/utils/api-error';
 import { toastMissingRequired } from '../../../core/utils/form-validation';
+import { toUpperAlpha, UppercaseInputDirective } from '../../../shared/uppercase-input.directive';
+import { QueryState } from '../../../shared/query-state/query-state';
 
 @Component({
   selector: 'app-users-page',
-  imports: [ReactiveFormsModule, Button, Dialog, InputText, Password, TableModule, Tag],
+  imports: [
+    ReactiveFormsModule,
+    Button,
+    Dialog,
+    InputText,
+    Password,
+    TableModule,
+    Tag,
+    UppercaseInputDirective,
+    QueryState,
+  ],
   templateUrl: './users-page.html',
 })
-export class UsersPage implements OnInit {
+export class UsersPage {
   private readonly api = inject(UserService);
   private readonly auth = inject(AuthService);
   private readonly fb = inject(FormBuilder);
   private readonly messages = inject(MessageService);
   private readonly confirm = inject(ConfirmationService);
+  private readonly queryClient = injectQueryClient();
 
-  readonly rows = signal<User[]>([]);
-  readonly loading = signal(false);
+  readonly usersQuery = injectQuery(() => ({
+    queryKey: queryKeys.users.list(),
+    queryFn: () => lastValueFrom(this.api.list()),
+    staleTime: STALE.users,
+  }));
+
+  readonly rows = computed(() => this.usersQuery.data() ?? []);
+  readonly loading = computed(() => this.usersQuery.isPending() && !this.usersQuery.data());
+  readonly loadError = computed(() => this.usersQuery.isError());
   readonly dialogVisible = signal(false);
-  readonly saving = signal(false);
 
   readonly form = this.fb.nonNullable.group({
     name: ['', Validators.required],
@@ -36,9 +64,43 @@ export class UsersPage implements OnInit {
     password: ['', [Validators.required, Validators.minLength(6)]],
   });
 
-  ngOnInit(): void {
-    this.reload();
-  }
+  readonly createMutation = injectMutation(() => ({
+    mutationFn: (payload: { name: string; email: string; password: string }) =>
+      lastValueFrom(this.api.create(payload)),
+    onSuccess: async () => {
+      await invalidateAfter.user(this.queryClient);
+      this.dialogVisible.set(false);
+      this.messages.add({ severity: 'success', summary: 'User created' });
+    },
+    onError: (err) => {
+      this.messages.add({
+        severity: 'error',
+        summary: 'Could not create user',
+        detail: apiErrorMessage(err),
+      });
+    },
+  }));
+
+  readonly setActiveMutation = injectMutation(() => ({
+    mutationFn: (input: { id: string; isActive: boolean }) =>
+      lastValueFrom(this.api.setActive(input.id, input.isActive)),
+    onSuccess: async (_data, input) => {
+      await invalidateAfter.user(this.queryClient);
+      this.messages.add({
+        severity: 'success',
+        summary: input.isActive ? 'User activated' : 'User deactivated',
+      });
+    },
+    onError: (err) => {
+      this.messages.add({
+        severity: 'error',
+        summary: 'Could not update user',
+        detail: apiErrorMessage(err),
+      });
+    },
+  }));
+
+  readonly saving = computed(() => this.createMutation.isPending());
 
   openCreate(): void {
     this.form.reset({ name: '', email: '', password: '' });
@@ -52,29 +114,11 @@ export class UsersPage implements OnInit {
       return;
     }
     const v = this.form.getRawValue();
-    this.saving.set(true);
-    this.api
-      .create({
-        name: v.name.trim(),
-        email: v.email.trim(),
-        password: v.password,
-      })
-      .subscribe({
-        next: () => {
-          this.saving.set(false);
-          this.dialogVisible.set(false);
-          this.messages.add({ severity: 'success', summary: 'User created' });
-          this.reload();
-        },
-        error: (err) => {
-          this.saving.set(false);
-          this.messages.add({
-            severity: 'error',
-            summary: 'Could not create user',
-            detail: apiErrorMessage(err),
-          });
-        },
-      });
+    this.createMutation.mutate({
+      name: toUpperAlpha(v.name.trim()),
+      email: v.email.trim(),
+      password: v.password,
+    });
   }
 
   confirmToggle(row: User): void {
@@ -88,7 +132,7 @@ export class UsersPage implements OnInit {
       icon: 'pi pi-user',
       acceptLabel: nextActive ? 'Activate' : 'Deactivate',
       rejectLabel: 'Cancel',
-      accept: () => this.setActive(row.id, nextActive),
+      accept: () => this.setActiveMutation.mutate({ id: row.id, isActive: nextActive }),
     });
   }
 
@@ -96,40 +140,7 @@ export class UsersPage implements OnInit {
     return this.auth.user()?.id === row.id;
   }
 
-  private setActive(id: string, isActive: boolean): void {
-    this.api.setActive(id, isActive).subscribe({
-      next: () => {
-        this.messages.add({
-          severity: 'success',
-          summary: isActive ? 'User activated' : 'User deactivated',
-        });
-        this.reload();
-      },
-      error: (err) => {
-        this.messages.add({
-          severity: 'error',
-          summary: 'Could not update user',
-          detail: apiErrorMessage(err),
-        });
-      },
-    });
-  }
-
-  private reload(): void {
-    this.loading.set(true);
-    this.api.list().subscribe({
-      next: (rows) => {
-        this.rows.set(rows);
-        this.loading.set(false);
-      },
-      error: (err) => {
-        this.loading.set(false);
-        this.messages.add({
-          severity: 'error',
-          summary: 'Failed to load users',
-          detail: apiErrorMessage(err),
-        });
-      },
-    });
+  retryLoad(): void {
+    this.usersQuery.refetch();
   }
 }

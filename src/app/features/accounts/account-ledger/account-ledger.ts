@@ -1,4 +1,4 @@
-import { Component, computed, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ConfirmationService, MessageService } from 'primeng/api';
@@ -9,17 +9,24 @@ import { InputNumber } from 'primeng/inputnumber';
 import { InputText } from 'primeng/inputtext';
 import { Select } from 'primeng/select';
 import { TableModule } from 'primeng/table';
+import { lastValueFrom } from 'rxjs';
 import {
   AccountEntry,
   AccountEntryType,
-  AccountLedgerResponse,
   LedgerPurchase,
-  Party,
   PurchaseItem,
 } from '../../../core/models/gms.models';
 import { AccountEntryService } from '../../../core/services/api/account-entry.service';
 import { AccountReportService } from '../../../core/services/api/account-report.service';
 import { PartyService } from '../../../core/services/api/party.service';
+import {
+  injectMutation,
+  injectQuery,
+  injectQueryClient,
+  invalidateAfter,
+  queryKeys,
+  STALE,
+} from '../../../core/query';
 import { apiErrorMessage } from '../../../core/utils/api-error';
 import {
   entryTypeLabel,
@@ -36,6 +43,7 @@ import {
   toIsoDate,
 } from '../../../core/utils/date';
 import { toastMissingRequired } from '../../../core/utils/form-validation';
+import { toUpperAlpha, UppercaseInputDirective } from '../../../shared/uppercase-input.directive';
 
 interface LedgerDisplayRow {
   entry: AccountEntry;
@@ -59,10 +67,11 @@ interface LedgerDisplayRow {
     InputText,
     Select,
     TableModule,
+    UppercaseInputDirective,
   ],
   templateUrl: './account-ledger.html',
 })
-export class AccountLedgerPage implements OnInit {
+export class AccountLedgerPage {
   private readonly reportApi = inject(AccountReportService);
   private readonly entriesApi = inject(AccountEntryService);
   private readonly partiesApi = inject(PartyService);
@@ -71,17 +80,20 @@ export class AccountLedgerPage implements OnInit {
   private readonly router = inject(Router);
   private readonly messages = inject(MessageService);
   private readonly confirm = inject(ConfirmationService);
+  private readonly queryClient = injectQueryClient();
+  private partiesInitialized = false;
 
-  readonly parties = signal<Party[]>([]);
-  readonly ledger = signal<AccountLedgerResponse | null>(null);
-  readonly loading = signal(false);
   readonly editDialogVisible = signal(false);
-  readonly saving = signal(false);
   readonly editingEntryId = signal<string | null>(null);
 
   selectedPartyId: string | null = null;
   fromDate: Date = startOfMonth(new Date());
   toDate: Date = endOfMonth(new Date());
+
+  private readonly partyFilter = signal<string | null>(null);
+  private readonly fromFilter = signal(toIsoDate(this.fromDate));
+  private readonly toFilter = signal(toIsoDate(this.toDate));
+  private readonly loadRequested = signal(false);
 
   readonly editForm = this.fb.nonNullable.group({
     type: ['debit' as AccountEntryType, Validators.required],
@@ -89,6 +101,86 @@ export class AccountLedgerPage implements OnInit {
     amount: [null as number | null, Validators.required],
     particular: [''],
   });
+
+  readonly partiesQuery = injectQuery(() => ({
+    queryKey: queryKeys.parties.list(),
+    queryFn: () => lastValueFrom(this.partiesApi.list()),
+    staleTime: STALE.parties,
+  }));
+
+  readonly ledgerQuery = injectQuery(() => {
+    const party = this.partyFilter();
+    const from = this.fromFilter();
+    const to = this.toFilter();
+    return {
+      queryKey: queryKeys.accounts.ledger({
+        party: party ?? '',
+        from,
+        to,
+      }),
+      queryFn: () =>
+        lastValueFrom(
+          this.reportApi.ledger({
+            party: party!,
+            from,
+            to,
+          }),
+        ),
+      staleTime: STALE.ledger,
+      enabled: !!party && this.loadRequested(),
+    };
+  });
+
+  readonly parties = computed(() => this.partiesQuery.data() ?? []);
+  readonly ledger = computed(() => this.ledgerQuery.data() ?? null);
+  readonly loading = computed(
+    () =>
+      this.loadRequested() &&
+      !!this.partyFilter() &&
+      this.ledgerQuery.isPending() &&
+      !this.ledgerQuery.data(),
+  );
+
+  readonly updateEntryMutation = injectMutation(() => ({
+    mutationFn: (input: {
+      id: string;
+      payload: {
+        type: AccountEntryType;
+        date: string;
+        amount: number;
+        particular?: string;
+      };
+    }) => lastValueFrom(this.entriesApi.update(input.id, input.payload)),
+    onSuccess: async () => {
+      await invalidateAfter.accountEntry(this.queryClient);
+      this.editDialogVisible.set(false);
+      this.messages.add({ severity: 'success', summary: 'Entry updated' });
+    },
+    onError: (err) => {
+      this.messages.add({
+        severity: 'error',
+        summary: 'Could not update entry',
+        detail: apiErrorMessage(err),
+      });
+    },
+  }));
+
+  readonly deleteEntryMutation = injectMutation(() => ({
+    mutationFn: (id: string) => lastValueFrom(this.entriesApi.remove(id)),
+    onSuccess: async () => {
+      await invalidateAfter.accountEntry(this.queryClient);
+      this.messages.add({ severity: 'success', summary: 'Entry deleted' });
+    },
+    onError: (err) => {
+      this.messages.add({
+        severity: 'error',
+        summary: 'Could not delete entry',
+        detail: apiErrorMessage(err),
+      });
+    },
+  }));
+
+  readonly saving = computed(() => this.updateEntryMutation.isPending());
 
   readonly displayRows = computed(() => {
     const data = this.ledger();
@@ -122,10 +214,12 @@ export class AccountLedgerPage implements OnInit {
     return rows;
   });
 
-  ngOnInit(): void {
-    this.partiesApi.list().subscribe({
-      next: (rows) => {
-        this.parties.set(rows);
+  constructor() {
+    effect(() => {
+      const rows = this.partiesQuery.data();
+      if (!rows || this.partiesInitialized) return;
+      this.partiesInitialized = true;
+      untracked(() => {
         const partyId = this.route.snapshot.queryParamMap.get('partyId');
         if (partyId && rows.some((p) => p._id === partyId)) {
           this.selectedPartyId = partyId;
@@ -135,22 +229,17 @@ export class AccountLedgerPage implements OnInit {
           this.syncPartyQuery(rows[0]._id);
           this.loadLedger();
         }
-      },
-      error: (err) => {
-        this.messages.add({
-          severity: 'error',
-          summary: 'Failed to load parties',
-          detail: apiErrorMessage(err),
-        });
-      },
+      });
     });
   }
 
   onPartyChange(): void {
     this.syncPartyQuery(this.selectedPartyId);
-    this.ledger.set(null);
     if (this.selectedPartyId) {
       this.loadLedger();
+    } else {
+      this.partyFilter.set(null);
+      this.loadRequested.set(false);
     }
   }
 
@@ -215,7 +304,7 @@ export class AccountLedgerPage implements OnInit {
       acceptLabel: 'Delete',
       rejectLabel: 'Cancel',
       acceptIcon: 'pi pi-trash',
-      accept: () => this.removeEntry(entry._id),
+      accept: () => this.deleteEntryMutation.mutate(entry._id),
     });
   }
 
@@ -228,31 +317,15 @@ export class AccountLedgerPage implements OnInit {
       return;
     }
     const v = this.editForm.getRawValue();
-    this.saving.set(true);
-    this.entriesApi
-      .update(id, {
+    this.updateEntryMutation.mutate({
+      id,
+      payload: {
         type: v.type,
         date: toIsoDate(v.date),
         amount: Number(v.amount),
-        particular: v.particular.trim() || undefined,
-      })
-      .subscribe({
-        next: () => {
-          this.saving.set(false);
-          this.editDialogVisible.set(false);
-          this.messages.add({ severity: 'success', summary: 'Entry updated' });
-          this.loadLedger();
-          this.partiesApi.list().subscribe({ next: (rows) => this.parties.set(rows) });
-        },
-        error: (err) => {
-          this.saving.set(false);
-          this.messages.add({
-            severity: 'error',
-            summary: 'Could not update entry',
-            detail: apiErrorMessage(err),
-          });
-        },
-      });
+        particular: v.particular.trim() ? toUpperAlpha(v.particular.trim()) : undefined,
+      },
+    });
   }
 
   formatBalance(balance: number): ReturnType<typeof formatAccountBalance> {
@@ -395,9 +468,12 @@ export class AccountLedgerPage implements OnInit {
       }
     }
 
+    const from = this.fromFilter() || toIsoDate(this.fromDate);
+    const to = this.toFilter() || toIsoDate(this.toDate);
+
     return {
       title: `Account ledger · ${data.party.name}`,
-      subtitle: `${toIsoDate(this.fromDate)} to ${toIsoDate(this.toDate)} · Opening ${this.formatAmount(data.openingBalance)} · Closing ${this.formatAmount(data.closingBalance)}`,
+      subtitle: `${from} to ${to} · Opening ${this.formatAmount(data.openingBalance)} · Closing ${this.formatAmount(data.closingBalance)}`,
       headers,
       rows,
       filename: `ledger-${data.party.name.replace(/\s+/g, '-')}`,
@@ -406,44 +482,10 @@ export class AccountLedgerPage implements OnInit {
 
   private loadLedger(): void {
     if (!this.selectedPartyId) return;
-    this.loading.set(true);
-    this.reportApi
-      .ledger({
-        party: this.selectedPartyId,
-        from: toIsoDate(this.fromDate),
-        to: toIsoDate(this.toDate),
-      })
-      .subscribe({
-        next: (data) => {
-          this.ledger.set(data);
-          this.loading.set(false);
-        },
-        error: (err) => {
-          this.loading.set(false);
-          this.messages.add({
-            severity: 'error',
-            summary: 'Failed to load ledger',
-            detail: apiErrorMessage(err),
-          });
-        },
-      });
-  }
-
-  private removeEntry(id: string): void {
-    this.entriesApi.remove(id).subscribe({
-      next: () => {
-        this.messages.add({ severity: 'success', summary: 'Entry deleted' });
-        this.loadLedger();
-        this.partiesApi.list().subscribe({ next: (rows) => this.parties.set(rows) });
-      },
-      error: (err) => {
-        this.messages.add({
-          severity: 'error',
-          summary: 'Could not delete entry',
-          detail: apiErrorMessage(err),
-        });
-      },
-    });
+    this.partyFilter.set(this.selectedPartyId);
+    this.fromFilter.set(toIsoDate(this.fromDate));
+    this.toFilter.set(toIsoDate(this.toDate));
+    this.loadRequested.set(true);
   }
 
   private syncPartyQuery(partyId: string | null): void {
@@ -453,5 +495,4 @@ export class AccountLedgerPage implements OnInit {
       replaceUrl: true,
     });
   }
-
 }

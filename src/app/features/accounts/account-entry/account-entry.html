@@ -124,7 +124,13 @@
 
       <label class="block">
         <span class="gms-field-label">Particular</span>
-        <input pInputText class="w-full" formControlName="particular" placeholder="Optional note" />
+        <input
+          pInputText
+          class="w-full"
+          formControlName="particular"
+          placeholder="Optional note"
+          gmsUppercase
+        />
       </label>
 
       <div class="flex justify-end pt-1">
@@ -179,11 +185,11 @@
   <form class="gms-dialog-body" [formGroup]="partyForm" (ngSubmit)="saveParty()">
     <label class="block">
       <span class="gms-field-label">Name *</span>
-      <input pInputText class="w-full" formControlName="name" />
+      <input pInputText class="w-full" formControlName="name" gmsUppercase />
     </label>
     <label class="block">
       <span class="gms-field-label">Phone</span>
-      <input pInputText class="w-full" formControlName="phone" />
+      <input pInputText class="w-full" formControlName="phone" gmsUppercase />
     </label>
     <label class="block">
       <span class="gms-field-label">Opening balance</span>
@@ -201,7 +207,7 @@
     </label>
     <label class="block">
       <span class="gms-field-label">Notes</span>
-      <textarea pTextarea class="w-full" rows="2" formControlName="notes"></textarea>
+      <textarea pTextarea class="w-full" rows="2" formControlName="notes" gmsUppercase></textarea>
     </label>
     <div class="gms-dialog-actions">
       <p-button

@@ -1,19 +1,55 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
+import { map } from 'rxjs/operators';
 import { environment } from '../../../../environments/environment';
-import { Consumer, ConsumerLookupResult } from '../../models/gms.models';
+import {
+  Consumer,
+  ConsumerListResponse,
+  ConsumerLookupResult,
+} from '../../models/gms.models';
+import type { ConsumerListFilters } from '../../query/query-keys';
+
+function normalizeListResponse(
+  data: ConsumerListResponse | Consumer[],
+  filters?: ConsumerListFilters,
+): ConsumerListResponse {
+  if (Array.isArray(data)) {
+    const page = filters?.page ?? 1;
+    const limit = filters?.limit ?? 50;
+    const start = (page - 1) * limit;
+    return {
+      items: data.slice(start, start + limit),
+      total: data.length,
+      page,
+      limit,
+    };
+  }
+  return {
+    items: data.items ?? [],
+    total: data.total ?? data.items?.length ?? 0,
+    page: data.page ?? filters?.page ?? 1,
+    limit: data.limit ?? filters?.limit ?? 50,
+  };
+}
 
 @Injectable({ providedIn: 'root' })
 export class ConsumerService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/consumers`;
 
-  list(distributorId?: string) {
+  list(filters?: ConsumerListFilters) {
     let params = new HttpParams();
-    if (distributorId) {
-      params = params.set('distributor', distributorId);
+    if (filters?.distributor) params = params.set('distributor', filters.distributor);
+    if (filters?.consumerNumber) {
+      params = params.set('consumerNumber', filters.consumerNumber);
     }
-    return this.http.get<Consumer[]>(this.base, { params });
+    if (filters?.phone) params = params.set('phone', filters.phone);
+    if (filters?.name) params = params.set('name', filters.name);
+    if (filters?.page != null) params = params.set('page', String(filters.page));
+    if (filters?.limit != null) params = params.set('limit', String(filters.limit));
+    return this.http
+      .get<ConsumerListResponse | Consumer[]>(this.base, { params })
+      .pipe(map((data) => normalizeListResponse(data, filters)));
   }
 
   lookup(distributorId: string, consumerNumber: string) {

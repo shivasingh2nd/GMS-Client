@@ -1,5 +1,5 @@
 import { DatePipe } from '@angular/common';
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ConfirmationService, MessageService } from 'primeng/api';
 import { Button } from 'primeng/button';
@@ -7,33 +7,76 @@ import { Dialog } from 'primeng/dialog';
 import { InputNumber } from 'primeng/inputnumber';
 import { InputText } from 'primeng/inputtext';
 import { TableModule } from 'primeng/table';
+import { lastValueFrom } from 'rxjs';
 import { Item, Purchase } from '../../../core/models/gms.models';
 import { ItemService } from '../../../core/services/api/item.service';
 import { PurchaseService } from '../../../core/services/api/purchase.service';
+import {
+  injectMutation,
+  injectQuery,
+  injectQueryClient,
+  invalidateAfter,
+  queryKeys,
+  STALE,
+} from '../../../core/query';
 import { apiErrorMessage } from '../../../core/utils/api-error';
 import { formatCurrency } from '../../../core/utils/account-balance';
 import { toastMissingRequired } from '../../../core/utils/form-validation';
+import { toUpperAlpha, UppercaseInputDirective } from '../../../shared/uppercase-input.directive';
+import { QueryState } from '../../../shared/query-state/query-state';
 
 @Component({
   selector: 'app-items-page',
-  imports: [DatePipe, ReactiveFormsModule, Button, Dialog, InputNumber, InputText, TableModule],
+  imports: [
+    DatePipe,
+    ReactiveFormsModule,
+    Button,
+    Dialog,
+    InputNumber,
+    InputText,
+    TableModule,
+    UppercaseInputDirective,
+    QueryState,
+  ],
   templateUrl: './items-page.html',
 })
-export class ItemsPage implements OnInit {
+export class ItemsPage {
   private readonly api = inject(ItemService);
   private readonly purchasesApi = inject(PurchaseService);
   private readonly fb = inject(FormBuilder);
   private readonly messages = inject(MessageService);
   private readonly confirm = inject(ConfirmationService);
+  private readonly queryClient = injectQueryClient();
 
-  readonly rows = signal<Item[]>([]);
-  readonly loading = signal(false);
+  readonly itemsQuery = injectQuery(() => ({
+    queryKey: queryKeys.items.list(),
+    queryFn: () => lastValueFrom(this.api.list()),
+    staleTime: STALE.items,
+  }));
+
+  readonly historyItemId = signal<string | null>(null);
+
+  readonly historyQuery = injectQuery(() => {
+    const itemId = this.historyItemId();
+    return {
+      queryKey: queryKeys.purchases.list({ item: itemId ?? undefined }),
+      queryFn: () => lastValueFrom(this.purchasesApi.list({ item: itemId! })),
+      staleTime: STALE.purchases,
+      enabled: !!itemId,
+    };
+  });
+
+  readonly rows = computed(() => this.itemsQuery.data() ?? []);
+  readonly loading = computed(() => this.itemsQuery.isPending() && !this.itemsQuery.data());
+  readonly loadError = computed(() => this.itemsQuery.isError());
+  readonly historyRows = computed(() => this.historyQuery.data() ?? []);
+  readonly historyLoading = computed(
+    () => !!this.historyItemId() && this.historyQuery.isPending() && !this.historyQuery.data(),
+  );
+
   readonly dialogVisible = signal(false);
-  readonly saving = signal(false);
   readonly editingId = signal<string | null>(null);
   readonly historyVisible = signal(false);
-  readonly historyLoading = signal(false);
-  readonly historyRows = signal<Purchase[]>([]);
   readonly historyItemName = signal('');
 
   readonly form = this.fb.nonNullable.group({
@@ -42,9 +85,47 @@ export class ItemsPage implements OnInit {
     defaultRate: [null as number | null],
   });
 
-  ngOnInit(): void {
-    this.reload();
-  }
+  readonly saveMutation = injectMutation(() => ({
+    mutationFn: (input: {
+      id: string | null;
+      payload: { name: string; unit?: string; defaultRate?: number | null };
+    }) =>
+      lastValueFrom(
+        input.id ? this.api.update(input.id, input.payload) : this.api.create(input.payload),
+      ),
+    onSuccess: async (_data, input) => {
+      await invalidateAfter.item(this.queryClient);
+      this.dialogVisible.set(false);
+      this.messages.add({
+        severity: 'success',
+        summary: input.id ? 'Item updated' : 'Item created',
+      });
+    },
+    onError: (err) => {
+      this.messages.add({
+        severity: 'error',
+        summary: 'Could not save item',
+        detail: apiErrorMessage(err),
+      });
+    },
+  }));
+
+  readonly deleteMutation = injectMutation(() => ({
+    mutationFn: (id: string) => lastValueFrom(this.api.remove(id)),
+    onSuccess: async () => {
+      await invalidateAfter.item(this.queryClient);
+      this.messages.add({ severity: 'success', summary: 'Item deleted' });
+    },
+    onError: (err) => {
+      this.messages.add({
+        severity: 'error',
+        summary: 'Could not delete item',
+        detail: apiErrorMessage(err),
+      });
+    },
+  }));
+
+  readonly saving = computed(() => this.saveMutation.isPending());
 
   openCreate(): void {
     this.editingId.set(null);
@@ -70,8 +151,12 @@ export class ItemsPage implements OnInit {
       acceptLabel: 'Delete',
       rejectLabel: 'Cancel',
       acceptIcon: 'pi pi-trash',
-      accept: () => this.remove(row._id),
+      accept: () => this.deleteMutation.mutate(row._id),
     });
+  }
+
+  retryLoad(): void {
+    this.itemsQuery.refetch();
   }
 
   save(): void {
@@ -81,31 +166,12 @@ export class ItemsPage implements OnInit {
       return;
     }
     const v = this.form.getRawValue();
-    const id = this.editingId();
-    const payload = {
-      name: v.name.trim(),
-      unit: v.unit.trim() || undefined,
-      defaultRate: v.defaultRate != null ? Number(v.defaultRate) : null,
-    };
-    this.saving.set(true);
-    const request = id ? this.api.update(id, payload) : this.api.create(payload);
-    request.subscribe({
-      next: () => {
-        this.saving.set(false);
-        this.dialogVisible.set(false);
-        this.messages.add({
-          severity: 'success',
-          summary: id ? 'Item updated' : 'Item created',
-        });
-        this.reload();
-      },
-      error: (err) => {
-        this.saving.set(false);
-        this.messages.add({
-          severity: 'error',
-          summary: 'Could not save item',
-          detail: err?.error?.message || 'Request failed',
-        });
+    this.saveMutation.mutate({
+      id: this.editingId(),
+      payload: {
+        name: toUpperAlpha(v.name.trim()),
+        unit: v.unit.trim() ? toUpperAlpha(v.unit.trim()) : undefined,
+        defaultRate: v.defaultRate != null ? Number(v.defaultRate) : null,
       },
     });
   }
@@ -117,60 +183,12 @@ export class ItemsPage implements OnInit {
   openHistory(row: Item): void {
     this.historyItemName.set(row.name);
     this.historyVisible.set(true);
-    this.historyLoading.set(true);
-    this.purchasesApi.list({ item: row._id }).subscribe({
-      next: (rows) => {
-        this.historyRows.set(rows);
-        this.historyLoading.set(false);
-      },
-      error: (err) => {
-        this.historyLoading.set(false);
-        this.messages.add({
-          severity: 'error',
-          summary: 'Failed to load purchase history',
-          detail: apiErrorMessage(err),
-        });
-      },
-    });
+    this.historyItemId.set(row._id);
   }
 
   purchaseDistributor(row: Purchase): string {
     const d = row.distributor;
     if (typeof d === 'object' && d) return d.name;
     return '—';
-  }
-
-  private remove(id: string): void {
-    this.api.remove(id).subscribe({
-      next: () => {
-        this.messages.add({ severity: 'success', summary: 'Item deleted' });
-        this.reload();
-      },
-      error: (err) => {
-        this.messages.add({
-          severity: 'error',
-          summary: 'Could not delete item',
-          detail: err?.error?.message || 'Request failed',
-        });
-      },
-    });
-  }
-
-  private reload(): void {
-    this.loading.set(true);
-    this.api.list().subscribe({
-      next: (rows) => {
-        this.rows.set(rows);
-        this.loading.set(false);
-      },
-      error: (err) => {
-        this.loading.set(false);
-        this.messages.add({
-          severity: 'error',
-          summary: 'Failed to load items',
-          detail: err?.error?.message || 'Request failed',
-        });
-      },
-    });
   }
 }

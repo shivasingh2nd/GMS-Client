@@ -1,8 +1,17 @@
-import { Component, computed, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import {
+  Component,
+  computed,
+  DestroyRef,
+  effect,
+  inject,
+  signal,
+  untracked,
+} from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { startWith } from 'rxjs/operators';
+import { lastValueFrom } from 'rxjs';
 import { MessageService } from 'primeng/api';
 import { Button } from 'primeng/button';
 import { DatePicker } from 'primeng/datepicker';
@@ -16,6 +25,14 @@ import { DacService } from '../../../core/services/api/dac.service';
 import { DistributorService } from '../../../core/services/api/distributor.service';
 import { PreferencesService } from '../../../core/services/preferences.service';
 import {
+  injectMutation,
+  injectQuery,
+  injectQueryClient,
+  invalidateAfter,
+  queryKeys,
+  STALE,
+} from '../../../core/query';
+import {
   Consumer,
   ConsumerLookupResult,
   CreateDacPayload,
@@ -26,6 +43,9 @@ import { apiErrorMessage } from '../../../core/utils/api-error';
 import { formatCurrency } from '../../../core/utils/account-balance';
 import { toIsoDate } from '../../../core/utils/date';
 import { toastMissingRequired } from '../../../core/utils/form-validation';
+import { HpPayConsumerFields } from '../../../core/utils/hp-pay-profile';
+import { HpPayScreenshotUpload } from '../../../shared/hp-pay-screenshot-upload/hp-pay-screenshot-upload';
+import { toUpperAlpha, UppercaseInputDirective } from '../../../shared/uppercase-input.directive';
 
 type LookupState = 'idle' | 'found' | 'missing';
 
@@ -52,11 +72,13 @@ interface IncompleteConsumerFields {
     Select,
     Textarea,
     Checkbox,
+    HpPayScreenshotUpload,
+    UppercaseInputDirective,
   ],
   templateUrl: './dac-entry.html',
   styleUrl: './dac-entry.css',
 })
-export class DacEntryPage implements OnInit {
+export class DacEntryPage {
   private readonly fb = inject(FormBuilder);
   private readonly distributorsApi = inject(DistributorService);
   private readonly consumersApi = inject(ConsumerService);
@@ -64,20 +86,73 @@ export class DacEntryPage implements OnInit {
   private readonly prefs = inject(PreferencesService);
   private readonly messages = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly queryClient = injectQueryClient();
+  private defaultsApplied = false;
 
-  readonly distributors = signal<DistributorOption[]>([]);
+  readonly distributorsQuery = injectQuery(() => ({
+    queryKey: queryKeys.distributors.list(),
+    queryFn: () => lastValueFrom(this.distributorsApi.list()),
+    staleTime: STALE.distributors,
+  }));
+
+  readonly recentDacsQuery = injectQuery(() => ({
+    queryKey: queryKeys.dacs.list({ limit: 5 }),
+    queryFn: () => lastValueFrom(this.dacsApi.list({ limit: 5 })),
+    staleTime: STALE.dacs,
+  }));
+
+  readonly distributors = computed(() =>
+    (this.distributorsQuery.data() ?? []).map((row) => this.toOption(row)),
+  );
+  readonly recentDacs = computed(() => this.recentDacsQuery.data() ?? []);
+  readonly loadingRecent = computed(
+    () => this.recentDacsQuery.isPending() && !this.recentDacsQuery.data(),
+  );
+
   readonly lookupState = signal<LookupState>('idle');
   readonly lookupResult = signal<ConsumerLookupResult | null>(null);
   readonly lookingUp = signal(false);
-  readonly submitting = signal(false);
   readonly intervalBlocked = signal(false);
-  readonly recentDacs = signal<Dac[]>([]);
-  readonly loadingRecent = signal(false);
   readonly incompleteConsumerFields = signal<IncompleteConsumerFields>({
     fatherName: false,
     phone: false,
     address: false,
   });
+  /** Screenshot fields kept until lookup finishes so they are not wiped. */
+  private readonly pendingHpPayFields = signal<HpPayConsumerFields | null>(null);
+
+  readonly createMutation = injectMutation(() => ({
+    mutationFn: (payload: CreateDacPayload) => lastValueFrom(this.dacsApi.create(payload)),
+    onSuccess: async (res) => {
+      await invalidateAfter.dac(this.queryClient);
+      this.messages.add({
+        severity: 'success',
+        summary: 'DAC saved',
+        detail: res.consumerCreated ? 'Consumer created and DAC booked' : 'DAC entry created',
+      });
+      this.resetAfterSuccess();
+    },
+    onError: (err: unknown) => {
+      const httpErr = err as { status?: number; error?: { nextEligibleDate?: string; message?: string; requiresConsumerInfo?: boolean } };
+      if (httpErr?.status === 409 && httpErr?.error?.nextEligibleDate) {
+        this.intervalBlocked.set(true);
+        this.messages.add({
+          severity: 'error',
+          summary: 'Too early',
+          detail: httpErr.error.message,
+        });
+        return;
+      }
+      if (httpErr?.error?.requiresConsumerInfo) {
+        this.lookupState.set('missing');
+        this.form.controls.consumerName.setValidators([Validators.required]);
+        this.form.controls.consumerName.updateValueAndValidity();
+      }
+      this.toastError(err);
+    },
+  }));
+
+  readonly submitting = computed(() => this.createMutation.isPending());
 
   readonly paymentMethods = ['Cash', 'UPI', 'Card', 'Bank Transfer', 'Other'];
 
@@ -125,13 +200,12 @@ export class DacEntryPage implements OnInit {
     return this.addDaysExclusive(new Date(date), days);
   });
 
-  ngOnInit(): void {
-    this.loadRecent();
-    this.distributorsApi.list().subscribe({
-      next: (rows) => {
-        const options = rows.map((row) => this.toOption(row));
-        this.distributors.set(options);
-
+  constructor() {
+    effect(() => {
+      const options = this.distributors();
+      if (!options.length || this.defaultsApplied) return;
+      untracked(() => {
+        this.defaultsApplied = true;
         const consumerDefault = this.prefs.defaultConsumerDistributorId();
         const bookingDefault = this.prefs.defaultBookingDistributorId();
         const firstId = options[0]?._id || '';
@@ -147,13 +221,18 @@ export class DacEntryPage implements OnInit {
 
         if (consumerId) this.form.controls.distributorId.setValue(consumerId);
         if (bookingId) this.form.controls.bookingDistributorId.setValue(bookingId);
-      },
-      error: (err) => this.toastError(err),
+      });
     });
 
     this.form.controls.distributorId.valueChanges
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(() => this.resetLookup());
+      .subscribe(() => {
+        this.resetLookup();
+        const pending = this.pendingHpPayFields();
+        if (pending?.consumerNumber && this.form.controls.distributorId.value) {
+          this.lookup();
+        }
+      });
     this.form.controls.consumerNumber.valueChanges
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => {
@@ -195,7 +274,7 @@ export class DacEntryPage implements OnInit {
 
   lookup(): void {
     const distributorId = this.form.controls.distributorId.value;
-    const consumerNumber = this.form.controls.consumerNumber.value.trim();
+    const consumerNumber = toUpperAlpha(this.form.controls.consumerNumber.value.trim());
 
     if (!distributorId || !consumerNumber) {
       this.form.controls.distributorId.markAsTouched();
@@ -204,9 +283,18 @@ export class DacEntryPage implements OnInit {
       return;
     }
 
+    if (this.form.controls.consumerNumber.value !== consumerNumber) {
+      this.form.controls.consumerNumber.setValue(consumerNumber, { emitEvent: false });
+    }
+
     this.lookingUp.set(true);
-    this.consumersApi.lookup(distributorId, consumerNumber).subscribe({
-      next: (result) => {
+    void this.queryClient
+      .fetchQuery({
+        queryKey: queryKeys.consumers.lookup(distributorId, consumerNumber),
+        queryFn: () => lastValueFrom(this.consumersApi.lookup(distributorId, consumerNumber)),
+        staleTime: STALE.consumerLookup,
+      })
+      .then((result) => {
         this.lookingUp.set(false);
         this.lookupResult.set(result);
         this.form.patchValue({
@@ -215,6 +303,7 @@ export class DacEntryPage implements OnInit {
           phone: '',
           address: '',
         });
+        this.applyPendingHpPayFields();
         if (result.found && result.consumer) {
           this.lookupState.set('found');
           this.form.controls.consumerName.clearValidators();
@@ -241,12 +330,11 @@ export class DacEntryPage implements OnInit {
           );
           el?.focus();
         });
-      },
-      error: (err) => {
+      })
+      .catch((err: unknown) => {
         this.lookingUp.set(false);
         this.toastError(err);
-      },
-    });
+      });
   }
 
   submit(): void {
@@ -279,49 +367,18 @@ export class DacEntryPage implements OnInit {
     const payload = {
       distributorId: v.distributorId,
       bookingDistributorId: v.bookingDistributorId,
-      consumerNumber: v.consumerNumber.trim(),
-      dacNumber: v.dacNumber.trim(),
+      consumerNumber: toUpperAlpha(v.consumerNumber.trim()),
+      dacNumber: toUpperAlpha(v.dacNumber.trim()),
       dacDate: toIsoDate(v.dacDate),
       amount: Number(v.amount),
       paymentMethod: v.paymentMethod,
       deliveryDone: v.deliveryDone,
       intervalDays: Number(v.intervalDays),
-      remarks: v.remarks.trim() || undefined,
+      remarks: v.remarks.trim() ? toUpperAlpha(v.remarks.trim()) : undefined,
       ...(consumerPayload ? { consumer: consumerPayload } : {}),
     };
 
-    this.submitting.set(true);
-    this.dacsApi.create(payload).subscribe({
-      next: (res) => {
-        this.submitting.set(false);
-        this.messages.add({
-          severity: 'success',
-          summary: 'DAC saved',
-          detail: res.consumerCreated
-            ? 'Consumer created and DAC booked'
-            : 'DAC entry created',
-        });
-        this.resetAfterSuccess();
-      },
-      error: (err) => {
-        this.submitting.set(false);
-        if (err?.status === 409 && err?.error?.nextEligibleDate) {
-          this.intervalBlocked.set(true);
-          this.messages.add({
-            severity: 'error',
-            summary: 'Too early',
-            detail: err.error.message,
-          });
-          return;
-        }
-        if (err?.error?.requiresConsumerInfo) {
-          this.lookupState.set('missing');
-          this.form.controls.consumerName.setValidators([Validators.required]);
-          this.form.controls.consumerName.updateValueAndValidity();
-        }
-        this.toastError(err);
-      },
-    });
+    this.createMutation.mutate(payload);
   }
 
   consumerSummary(consumer: Consumer | null): string {
@@ -343,17 +400,6 @@ export class DacEntryPage implements OnInit {
       return `${dac.consumer.consumerNumber} · ${dac.consumer.name}`;
     }
     return '—';
-  }
-
-  loadRecent(): void {
-    this.loadingRecent.set(true);
-    this.dacsApi.list({ limit: 5 }).subscribe({
-      next: (rows) => {
-        this.recentDacs.set(rows);
-        this.loadingRecent.set(false);
-      },
-      error: () => this.loadingRecent.set(false),
-    });
   }
 
   onFormKeydown(event: KeyboardEvent): void {
@@ -408,6 +454,43 @@ export class DacEntryPage implements OnInit {
     this.form.controls.consumerName.updateValueAndValidity();
   }
 
+  applyHpPayFields(fields: HpPayConsumerFields): void {
+    this.pendingHpPayFields.set(fields);
+
+    if (fields.consumerNumber) {
+      this.form.controls.consumerNumber.setValue(toUpperAlpha(fields.consumerNumber));
+    }
+
+    const distributorId = this.form.controls.distributorId.value;
+    if (!distributorId) {
+      this.messages.add({
+        severity: 'warn',
+        summary: 'Select distributor',
+        detail: 'Choose the consumer distributor, then look up to continue with screenshot data.',
+      });
+      return;
+    }
+
+    if (fields.consumerNumber) {
+      this.lookup();
+      return;
+    }
+
+    this.applyPendingHpPayFields();
+  }
+
+  private applyPendingHpPayFields(): void {
+    const fields = this.pendingHpPayFields();
+    if (!fields) return;
+
+    this.form.patchValue({
+      ...(fields.name ? { consumerName: toUpperAlpha(fields.name) } : {}),
+      ...(fields.phone ? { phone: fields.phone } : {}),
+      ...(fields.address ? { address: toUpperAlpha(fields.address) } : {}),
+    });
+    this.pendingHpPayFields.set(null);
+  }
+
   private setIncompleteConsumerFields(consumer: Consumer): void {
     this.incompleteConsumerFields.set({
       fatherName: !consumer.fatherName?.trim(),
@@ -432,10 +515,10 @@ export class DacEntryPage implements OnInit {
   }): CreateDacPayload['consumer'] | null {
     if (this.lookupState() === 'missing') {
       return {
-        name: v.consumerName.trim(),
-        fatherName: v.fatherName.trim() || undefined,
+        name: toUpperAlpha(v.consumerName.trim()),
+        fatherName: v.fatherName.trim() ? toUpperAlpha(v.fatherName.trim()) : undefined,
         phone: v.phone.trim() || undefined,
-        address: v.address.trim() || undefined,
+        address: v.address.trim() ? toUpperAlpha(v.address.trim()) : undefined,
       };
     }
 
@@ -446,13 +529,13 @@ export class DacEntryPage implements OnInit {
     const incomplete = this.incompleteConsumerFields();
     const updates: NonNullable<CreateDacPayload['consumer']> = {};
     if (incomplete.fatherName && v.fatherName.trim()) {
-      updates.fatherName = v.fatherName.trim();
+      updates.fatherName = toUpperAlpha(v.fatherName.trim());
     }
     if (incomplete.phone && v.phone.trim()) {
       updates.phone = v.phone.trim();
     }
     if (incomplete.address && v.address.trim()) {
-      updates.address = v.address.trim();
+      updates.address = toUpperAlpha(v.address.trim());
     }
     return Object.keys(updates).length ? updates : null;
   }
@@ -477,7 +560,6 @@ export class DacEntryPage implements OnInit {
       remarks: '',
     });
     this.resetLookup();
-    this.loadRecent();
     queueMicrotask(() => document.getElementById('consumerNumber')?.focus());
   }
 

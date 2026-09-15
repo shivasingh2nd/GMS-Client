@@ -109,7 +109,8 @@
         <th>DAC date</th>
         <th>Next date</th>
         <th>DAC no.</th>
-        <th>Consumer</th>
+        <th>Consumer no.</th>
+        <th>Name</th>
         <th>Booking dist.</th>
         <th>Payment</th>
         <th class="text-right">Amount</th>
@@ -124,7 +125,8 @@
           {{ formatDate(nextDate(row)) }}
         </td>
         <td class="font-semibold">{{ row.dacNumber }}</td>
-        <td>{{ consumerLabel(row) }}</td>
+        <td class="font-semibold whitespace-nowrap">{{ consumerNumber(row) }}</td>
+        <td class="font-medium">{{ consumerName(row) }}</td>
         <td class="text-[var(--gms-muted)]">{{ distributorLabel(row) }}</td>
         <td>{{ row.paymentMethod }}</td>
         <td class="text-right font-semibold">{{ formatAmount(row.amount) }}</td>
@@ -158,7 +160,7 @@
     </ng-template>
     <ng-template #emptymessage>
       <tr>
-        <td colspan="9">
+        <td colspan="10">
           <div class="gms-empty">
             <i class="pi pi-chart-bar"></i>
             <p class="font-medium text-[var(--gms-ink)]">No DACs in this range</p>
@@ -205,7 +207,7 @@
     <div class="grid gap-4 sm:grid-cols-2">
       <label class="block">
         <span class="gms-field-label">DAC number *</span>
-        <input pInputText class="w-full" formControlName="dacNumber" />
+        <input pInputText class="w-full" formControlName="dacNumber" gmsUppercase />
       </label>
       <label class="block">
         <span class="gms-field-label">DAC date *</span>
@@ -263,7 +265,7 @@
     </div>
     <label class="block">
       <span class="gms-field-label">Remarks</span>
-      <textarea pTextarea class="w-full" rows="2" formControlName="remarks"></textarea>
+      <textarea pTextarea class="w-full" rows="2" formControlName="remarks" gmsUppercase></textarea>
     </label>
     <div class="gms-dialog-actions">
       <p-button

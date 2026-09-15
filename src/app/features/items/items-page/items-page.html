@@ -9,8 +9,19 @@
 </div>
 
 <div class="gms-table-wrap">
+  @if (loadError()) {
+    <div class="gms-panel p-4">
+      <app-query-state
+        [error]="true"
+        errorTitle="Failed to load items"
+        [errorDetail]="itemsQuery.error()?.message || ''"
+        (retry)="retryLoad()"
+      />
+    </div>
+  } @else {
   <p-table
     [value]="rows()"
+    dataKey="_id"
     [loading]="loading()"
     [paginator]="rows().length > 10"
     [rows]="10"
@@ -71,6 +82,7 @@
       </tr>
     </ng-template>
   </p-table>
+  }
 </div>
 
 <p-dialog
@@ -86,11 +98,23 @@
   <form class="gms-dialog-body" [formGroup]="form" (ngSubmit)="save()">
     <label class="block">
       <span class="gms-field-label">Name *</span>
-      <input pInputText class="w-full" formControlName="name" placeholder="e.g. 14.2kg cylinder" />
+      <input
+        pInputText
+        class="w-full"
+        formControlName="name"
+        placeholder="e.g. 14.2kg cylinder"
+        gmsUppercase
+      />
     </label>
     <label class="block">
       <span class="gms-field-label">Unit</span>
-      <input pInputText class="w-full" formControlName="unit" placeholder="e.g. cylinder, kg" />
+      <input
+        pInputText
+        class="w-full"
+        formControlName="unit"
+        placeholder="e.g. cylinder, kg"
+        gmsUppercase
+      />
     </label>
     <label class="block">
       <span class="gms-field-label">Default rate (optional)</span>

@@ -5,82 +5,193 @@
       Create consumers on their own when you are not booking a DAC right now.
     </p>
   </div>
-  <p-button label="Add consumer" icon="pi pi-plus" (onClick)="openCreate()" />
+  <div class="gms-page-actions">
+    <p-button
+      label="Export CSV"
+      icon="pi pi-download"
+      severity="secondary"
+      [outlined]="true"
+      [disabled]="!totalRecords()"
+      (onClick)="exportCsv()"
+    />
+    <p-button
+      label="Export PDF"
+      icon="pi pi-file-pdf"
+      severity="secondary"
+      [outlined]="true"
+      [disabled]="!totalRecords()"
+      (onClick)="exportPdf()"
+    />
+    <p-button label="Add consumer" icon="pi pi-plus" (onClick)="openCreate()" />
+  </div>
 </div>
 
-<div class="gms-table-wrap overflow-x-auto">
-  <p-table
-    [value]="rows()"
-    [loading]="loading()"
-    [paginator]="rows().length > 10"
-    [rows]="10"
-    styleClass="p-datatable-sm gms-datatable"
-  >
-    <ng-template #header>
-      <tr>
-        <th>Consumer no.</th>
-        <th>Name</th>
-        <th>Father name</th>
-        <th>Distributor</th>
-        <th>Phone</th>
-        <th>Address</th>
-        <th style="width: 9rem" class="text-right">Actions</th>
-      </tr>
-    </ng-template>
-    <ng-template #body let-row>
-      <tr>
-        <td class="font-semibold whitespace-nowrap">{{ row.consumerNumber }}</td>
-        <td class="font-medium">{{ row.name }}</td>
-        <td class="text-[var(--gms-muted)]">{{ row.fatherName || '—' }}</td>
-        <td class="text-[var(--gms-muted)]">{{ distributorLabel(row) }}</td>
-        <td class="whitespace-nowrap">{{ row.phone || '—' }}</td>
-        <td class="max-w-[16rem] truncate text-[var(--gms-muted)]" [title]="row.address || ''">
-          {{ row.address || '—' }}
-        </td>
-        <td>
-          <div class="flex justify-end gap-1">
-            <p-button
-              icon="pi pi-chart-bar"
-              severity="secondary"
-              [rounded]="true"
-              [text]="true"
-              [routerLink]="['/dac-report']"
-              [queryParams]="{ distributor: distributorId(row), consumerNumber: row.consumerNumber }"
-              ariaLabel="View DACs"
-            />
-            <p-button
-              icon="pi pi-pencil"
-              severity="secondary"
-              [rounded]="true"
-              [text]="true"
-              (onClick)="openEdit(row)"
-              ariaLabel="Edit"
-            />
-            <p-button
-              icon="pi pi-trash"
-              severity="danger"
-              [rounded]="true"
-              [text]="true"
-              (onClick)="confirmDelete(row)"
-              ariaLabel="Delete"
-            />
-          </div>
-        </td>
-      </tr>
-    </ng-template>
-    <ng-template #emptymessage>
-      <tr>
-        <td colspan="7">
-          <div class="gms-empty">
-            <i class="pi pi-users"></i>
-            <p class="font-medium text-[var(--gms-ink)]">No consumers yet</p>
-            <p class="text-sm">Add one here, or create during DAC entry.</p>
-          </div>
-        </td>
-      </tr>
-    </ng-template>
-  </p-table>
-</div>
+<section class="gms-panel mb-5 p-4 md:p-5">
+  <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <label class="block">
+      <span class="gms-field-label">Distributor</span>
+      <p-select
+        [ngModel]="filterDistributorId()"
+        (ngModelChange)="filterDistributorId.set($event)"
+        inputId="filterDistributor"
+        [options]="distributors()"
+        optionLabel="name"
+        optionValue="_id"
+        placeholder="All distributors"
+        [filter]="true"
+        filterPlaceholder="Search distributor"
+        [showClear]="true"
+        appendTo="body"
+        styleClass="w-full gms-select"
+        panelStyleClass="gms-select-panel"
+      />
+    </label>
+    <label class="block">
+      <span class="gms-field-label">Consumer number</span>
+      <input
+        pInputText
+        class="w-full"
+        inputId="filterConsumerNumber"
+        [ngModel]="filterConsumerNumber()"
+        (ngModelChange)="filterConsumerNumber.set(($event || '').toLocaleUpperCase('en-IN'))"
+        placeholder="Search number"
+        gmsUppercase
+      />
+    </label>
+    <label class="block">
+      <span class="gms-field-label">Phone number</span>
+      <input
+        pInputText
+        class="w-full"
+        inputId="filterPhone"
+        [ngModel]="filterPhone()"
+        (ngModelChange)="filterPhone.set(($event || '').toLocaleUpperCase('en-IN'))"
+        placeholder="Search phone"
+        gmsUppercase
+      />
+    </label>
+    <label class="block">
+      <span class="gms-field-label">Name</span>
+      <input
+        pInputText
+        class="w-full"
+        inputId="filterName"
+        [ngModel]="filterName()"
+        (ngModelChange)="filterName.set(($event || '').toLocaleUpperCase('en-IN'))"
+        placeholder="Search name"
+        gmsUppercase
+      />
+    </label>
+  </div>
+  <div class="mt-4 flex flex-wrap justify-end gap-2">
+    <p-button
+      label="Clear"
+      icon="pi pi-times"
+      severity="secondary"
+      [outlined]="true"
+      (onClick)="clearFilters()"
+    />
+  </div>
+</section>
+
+@if (loadError()) {
+  <div class="gms-panel mb-5 p-4">
+    <app-query-state
+      [error]="true"
+      errorTitle="Failed to load consumers"
+      [errorDetail]="consumersQuery.error()?.message || ''"
+      (retry)="retryLoad()"
+    />
+  </div>
+} @else {
+  <div class="gms-table-wrap overflow-x-auto">
+    <p-table
+      [value]="rows()"
+      dataKey="_id"
+      [lazy]="true"
+      [loading]="loading()"
+      [paginator]="true"
+      [rows]="pageSize"
+      [totalRecords]="totalRecords()"
+      [first]="(page() - 1) * pageSize"
+      (onLazyLoad)="onLazyLoad($event)"
+      styleClass="p-datatable-sm gms-datatable"
+    >
+      <ng-template #header>
+        <tr>
+          <th>Consumer no.</th>
+          <th>Name</th>
+          <th>Father name</th>
+          <th>Distributor</th>
+          <th>Phone</th>
+          <th>Address</th>
+          <th style="width: 9rem" class="text-right">Actions</th>
+        </tr>
+      </ng-template>
+      <ng-template #body let-row>
+        <tr>
+          <td class="font-semibold whitespace-nowrap">{{ row.consumerNumber }}</td>
+          <td class="font-medium">{{ row.name }}</td>
+          <td class="text-[var(--gms-muted)]">{{ row.fatherName || '—' }}</td>
+          <td class="text-[var(--gms-muted)]">{{ distributorLabel(row) }}</td>
+          <td class="whitespace-nowrap">{{ row.phone || '—' }}</td>
+          <td class="max-w-[16rem] truncate text-[var(--gms-muted)]" [title]="row.address || ''">
+            {{ row.address || '—' }}
+          </td>
+          <td>
+            <div class="flex justify-end gap-1">
+              <p-button
+                icon="pi pi-chart-bar"
+                severity="secondary"
+                [rounded]="true"
+                [text]="true"
+                [routerLink]="['/dac-report']"
+                [queryParams]="{ distributor: distributorId(row), consumerNumber: row.consumerNumber }"
+                ariaLabel="View DACs"
+              />
+              <p-button
+                icon="pi pi-pencil"
+                severity="secondary"
+                [rounded]="true"
+                [text]="true"
+                (onClick)="openEdit(row)"
+                ariaLabel="Edit"
+              />
+              <p-button
+                icon="pi pi-trash"
+                severity="danger"
+                [rounded]="true"
+                [text]="true"
+                (onClick)="confirmDelete(row)"
+                ariaLabel="Delete"
+              />
+            </div>
+          </td>
+        </tr>
+      </ng-template>
+      <ng-template #emptymessage>
+        <tr>
+          <td colspan="7">
+            @if (loading()) {
+              <app-query-state [pending]="true" pendingTitle="Loading consumers…" />
+            } @else {
+              <div class="gms-empty">
+                <i class="pi pi-users"></i>
+                @if (hasActiveFilters()) {
+                  <p class="font-medium text-[var(--gms-ink)]">No matching consumers</p>
+                  <p class="text-sm">Try clearing or adjusting the filters.</p>
+                } @else {
+                  <p class="font-medium text-[var(--gms-ink)]">No consumers yet</p>
+                  <p class="text-sm">Add one here, or create during DAC entry.</p>
+                }
+              </div>
+            }
+          </td>
+        </tr>
+      </ng-template>
+    </p-table>
+  </div>
+}
 
 <p-dialog
   [header]="editingId() ? 'Edit consumer' : 'Add consumer'"
@@ -98,6 +209,9 @@
     <p class="gms-dialog-lead">
       Consumer numbers are unique per distributor. Soft-delete keeps historical DACs intact.
     </p>
+    @if (!editingId()) {
+      <app-hp-pay-screenshot-upload (extracted)="applyHpPayFields($event)" />
+    }
     <label class="block">
       <span class="gms-field-label">Distributor *</span>
       <p-select
@@ -118,24 +232,24 @@
     <div class="grid gap-4 sm:grid-cols-2">
       <label class="block">
         <span class="gms-field-label">Consumer number *</span>
-        <input pInputText class="w-full" formControlName="consumerNumber" />
+        <input pInputText class="w-full" formControlName="consumerNumber" gmsUppercase />
       </label>
       <label class="block">
         <span class="gms-field-label">Name *</span>
-        <input pInputText class="w-full" formControlName="name" />
+        <input pInputText class="w-full" formControlName="name" gmsUppercase />
       </label>
       <label class="block">
         <span class="gms-field-label">Father name</span>
-        <input pInputText class="w-full" formControlName="fatherName" />
+        <input pInputText class="w-full" formControlName="fatherName" gmsUppercase />
       </label>
       <label class="block">
         <span class="gms-field-label">Phone</span>
-        <input pInputText class="w-full" formControlName="phone" />
+        <input pInputText class="w-full" formControlName="phone" gmsUppercase />
       </label>
     </div>
     <label class="block">
       <span class="gms-field-label">Address</span>
-      <textarea pTextarea class="w-full" rows="2" formControlName="address"></textarea>
+      <textarea pTextarea class="w-full" rows="2" formControlName="address" gmsUppercase></textarea>
     </label>
     <div class="gms-dialog-actions">
       <p-button

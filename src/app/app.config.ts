@@ -13,6 +13,7 @@ import { MessageService, ConfirmationService } from 'primeng/api';
 import { routes } from './app.routes';
 import { authInterceptor } from './core/interceptors/auth.interceptor';
 import { errorInterceptor } from './core/interceptors/error.interceptor';
+import { provideQueryClient } from './core/query';
 import { environment } from '../environments/environment';
 
 const GmsPreset = definePreset(Aura, {
@@ -39,6 +40,7 @@ export const appConfig: ApplicationConfig = {
     provideRouter(routes),
     provideHttpClient(withInterceptors([authInterceptor, errorInterceptor])),
     provideAnimationsAsync(),
+    ...provideQueryClient(),
     providePrimeNG({
       theme: {
         preset: GmsPreset,

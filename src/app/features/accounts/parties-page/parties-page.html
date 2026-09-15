@@ -9,8 +9,19 @@
 </div>
 
 <div class="gms-table-wrap">
+  @if (loadError()) {
+    <div class="gms-panel p-4">
+      <app-query-state
+        [error]="true"
+        errorTitle="Failed to load parties"
+        [errorDetail]="partiesQuery.error()?.message || ''"
+        (retry)="retryLoad()"
+      />
+    </div>
+  } @else {
   <p-table
     [value]="rows()"
+    dataKey="_id"
     [loading]="loading()"
     [paginator]="rows().length > 10"
     [rows]="10"
@@ -94,6 +105,7 @@
       </tr>
     </ng-template>
   </p-table>
+  }
 </div>
 
 <p-dialog
@@ -115,11 +127,11 @@
     }
     <label class="block">
       <span class="gms-field-label">Name *</span>
-      <input pInputText class="w-full" formControlName="name" />
+      <input pInputText class="w-full" formControlName="name" gmsUppercase />
     </label>
     <label class="block">
       <span class="gms-field-label">Phone</span>
-      <input pInputText class="w-full" formControlName="phone" inputmode="tel" />
+      <input pInputText class="w-full" formControlName="phone" inputmode="tel" gmsUppercase />
     </label>
     <label class="block">
       <span class="gms-field-label">Opening balance</span>
@@ -134,7 +146,7 @@
     </label>
     <label class="block">
       <span class="gms-field-label">Notes</span>
-      <textarea pTextarea class="w-full" rows="2" formControlName="notes"></textarea>
+      <textarea pTextarea class="w-full" rows="2" formControlName="notes" gmsUppercase></textarea>
     </label>
     <div class="gms-dialog-actions">
       <p-button

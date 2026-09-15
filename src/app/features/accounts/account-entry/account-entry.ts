@@ -1,4 +1,4 @@
-import { Component, computed, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -10,9 +10,18 @@ import { InputNumber } from 'primeng/inputnumber';
 import { InputText } from 'primeng/inputtext';
 import { Select } from 'primeng/select';
 import { Textarea } from 'primeng/textarea';
+import { lastValueFrom } from 'rxjs';
 import { AccountEntry, AccountEntryType, Party } from '../../../core/models/gms.models';
 import { AccountEntryService } from '../../../core/services/api/account-entry.service';
 import { PartyService } from '../../../core/services/api/party.service';
+import {
+  injectMutation,
+  injectQuery,
+  injectQueryClient,
+  invalidateAfter,
+  queryKeys,
+  STALE,
+} from '../../../core/query';
 import { apiErrorMessage } from '../../../core/utils/api-error';
 import {
   entryTypeLabel,
@@ -21,6 +30,7 @@ import {
 } from '../../../core/utils/account-balance';
 import { toIsoDate } from '../../../core/utils/date';
 import { toastMissingRequired } from '../../../core/utils/form-validation';
+import { toUpperAlpha, UppercaseInputDirective } from '../../../shared/uppercase-input.directive';
 
 @Component({
   selector: 'app-account-entry',
@@ -34,22 +44,19 @@ import { toastMissingRequired } from '../../../core/utils/form-validation';
     InputText,
     Select,
     Textarea,
+    UppercaseInputDirective,
   ],
   templateUrl: './account-entry.html',
 })
-export class AccountEntryPage implements OnInit {
+export class AccountEntryPage {
   private readonly entriesApi = inject(AccountEntryService);
   private readonly partiesApi = inject(PartyService);
   private readonly fb = inject(FormBuilder);
   private readonly messages = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly queryClient = injectQueryClient();
 
-  readonly parties = signal<Party[]>([]);
-  readonly recentEntries = signal<AccountEntry[]>([]);
-  readonly loadingRecent = signal(false);
-  readonly saving = signal(false);
   readonly partyDialogVisible = signal(false);
-  readonly savingParty = signal(false);
 
   readonly form = this.fb.nonNullable.group({
     partyId: ['', Validators.required],
@@ -66,8 +73,43 @@ export class AccountEntryPage implements OnInit {
     openingBalance: [0],
   });
 
+  private readonly partyIdFilter = signal('');
+  private readonly dateFilter = signal<string | null>(toIsoDate(new Date()));
+
+  readonly partiesQuery = injectQuery(() => ({
+    queryKey: queryKeys.parties.list(),
+    queryFn: () => lastValueFrom(this.partiesApi.list()),
+    staleTime: STALE.parties,
+  }));
+
+  readonly recentEntriesQuery = injectQuery(() => {
+    const party = this.partyIdFilter();
+    const date = this.dateFilter();
+    return {
+      queryKey: queryKeys.entries.list({
+        party: party || undefined,
+        from: date ?? undefined,
+        to: date ?? undefined,
+      }),
+      queryFn: () =>
+        lastValueFrom(this.entriesApi.list({ party, from: date!, to: date! })),
+      staleTime: STALE.entries,
+      enabled: !!party && !!date,
+    };
+  });
+
+  readonly parties = computed(() => this.partiesQuery.data() ?? []);
+  readonly recentEntries = computed(() => this.recentEntriesQuery.data() ?? []);
+  readonly loadingRecent = computed(
+    () =>
+      !!this.partyIdFilter() &&
+      !!this.dateFilter() &&
+      this.recentEntriesQuery.isPending() &&
+      !this.recentEntriesQuery.data(),
+  );
+
   readonly selectedParty = computed(() => {
-    const id = this.form.controls.partyId.value;
+    const id = this.partyIdFilter();
     return this.parties().find((p) => p._id === id) ?? null;
   });
 
@@ -76,14 +118,67 @@ export class AccountEntryPage implements OnInit {
     return party ? formatAccountBalance(party.currentBalance ?? party.openingBalance) : null;
   });
 
-  ngOnInit(): void {
-    this.reloadParties();
+  readonly createEntryMutation = injectMutation(() => ({
+    mutationFn: (payload: {
+      party: string;
+      date: string;
+      type: AccountEntryType;
+      amount: number;
+      particular?: string;
+    }) => lastValueFrom(this.entriesApi.create(payload)),
+    onSuccess: async (_data, payload) => {
+      await invalidateAfter.accountEntry(this.queryClient);
+      this.messages.add({ severity: 'success', summary: 'Entry saved' });
+      this.form.patchValue({ amount: null, particular: '' });
+      this.partyIdFilter.set(payload.party);
+      this.dateFilter.set(payload.date);
+    },
+    onError: (err) => {
+      this.messages.add({
+        severity: 'error',
+        summary: 'Could not save entry',
+        detail: apiErrorMessage(err),
+      });
+    },
+  }));
+
+  readonly createPartyMutation = injectMutation(() => ({
+    mutationFn: (payload: {
+      name: string;
+      phone?: string;
+      notes?: string;
+      openingBalance: number;
+    }) => lastValueFrom(this.partiesApi.create(payload)),
+    onSuccess: async (party: Party) => {
+      await invalidateAfter.party(this.queryClient);
+      this.partyDialogVisible.set(false);
+      this.messages.add({ severity: 'success', summary: 'Party created' });
+      this.form.controls.partyId.setValue(party._id);
+      this.partyIdFilter.set(party._id);
+    },
+    onError: (err) => {
+      this.messages.add({
+        severity: 'error',
+        summary: 'Could not create party',
+        detail: apiErrorMessage(err),
+      });
+    },
+  }));
+
+  readonly saving = computed(() => this.createEntryMutation.isPending());
+  readonly savingParty = computed(() => this.createPartyMutation.isPending());
+
+  constructor() {
     this.form.controls.date.valueChanges
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(() => this.loadRecent());
+      .subscribe((date) => {
+        this.dateFilter.set(date ? toIsoDate(date) : null);
+      });
     this.form.controls.partyId.valueChanges
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(() => this.loadRecent());
+      .subscribe((partyId) => {
+        this.partyIdFilter.set(partyId || '');
+      });
   }
 
   setType(type: AccountEntryType): void {
@@ -91,7 +186,7 @@ export class AccountEntryPage implements OnInit {
   }
 
   onPartyChange(): void {
-    this.loadRecent();
+    this.partyIdFilter.set(this.form.controls.partyId.value || '');
   }
 
   openPartyDialog(): void {
@@ -106,30 +201,12 @@ export class AccountEntryPage implements OnInit {
       return;
     }
     const v = this.partyForm.getRawValue();
-    this.savingParty.set(true);
-    this.partiesApi
-      .create({
-        name: v.name.trim(),
-        phone: v.phone.trim() || undefined,
-        notes: v.notes.trim() || undefined,
-        openingBalance: Number(v.openingBalance) || 0,
-      })
-      .subscribe({
-        next: (party) => {
-          this.savingParty.set(false);
-          this.partyDialogVisible.set(false);
-          this.messages.add({ severity: 'success', summary: 'Party created' });
-          this.reloadParties(party._id);
-        },
-        error: (err) => {
-          this.savingParty.set(false);
-          this.messages.add({
-            severity: 'error',
-            summary: 'Could not create party',
-            detail: apiErrorMessage(err),
-          });
-        },
-      });
+    this.createPartyMutation.mutate({
+      name: toUpperAlpha(v.name.trim()),
+      phone: v.phone.trim() || undefined,
+      notes: v.notes.trim() ? toUpperAlpha(v.notes.trim()) : undefined,
+      openingBalance: Number(v.openingBalance) || 0,
+    });
   }
 
   save(): void {
@@ -139,32 +216,13 @@ export class AccountEntryPage implements OnInit {
       return;
     }
     const v = this.form.getRawValue();
-    this.saving.set(true);
-    this.entriesApi
-      .create({
-        party: v.partyId,
-        date: toIsoDate(v.date),
-        type: v.type,
-        amount: Number(v.amount),
-        particular: v.particular.trim() || undefined,
-      })
-      .subscribe({
-        next: () => {
-          this.saving.set(false);
-          this.messages.add({ severity: 'success', summary: 'Entry saved' });
-          this.form.patchValue({ amount: null, particular: '' });
-          this.reloadParties(v.partyId);
-          this.loadRecent();
-        },
-        error: (err) => {
-          this.saving.set(false);
-          this.messages.add({
-            severity: 'error',
-            summary: 'Could not save entry',
-            detail: apiErrorMessage(err),
-          });
-        },
-      });
+    this.createEntryMutation.mutate({
+      party: v.partyId,
+      date: toIsoDate(v.date),
+      type: v.type,
+      amount: Number(v.amount),
+      particular: v.particular.trim() ? toUpperAlpha(v.particular.trim()) : undefined,
+    });
   }
 
   entryLabel(entry: AccountEntry): string {
@@ -178,42 +236,4 @@ export class AccountEntryPage implements OnInit {
   partyName(entry: AccountEntry): string {
     return typeof entry.party === 'object' && entry.party ? entry.party.name : '—';
   }
-
-  private reloadParties(selectId?: string): void {
-    this.partiesApi.list().subscribe({
-      next: (rows) => {
-        this.parties.set(rows);
-        if (selectId) {
-          this.form.controls.partyId.setValue(selectId);
-        }
-        this.loadRecent();
-      },
-      error: (err) => {
-        this.messages.add({
-          severity: 'error',
-          summary: 'Failed to load parties',
-          detail: apiErrorMessage(err),
-        });
-      },
-    });
-  }
-
-  loadRecent(): void {
-    const partyId = this.form.controls.partyId.value;
-    const date = this.form.controls.date.value;
-    if (!partyId || !date) {
-      this.recentEntries.set([]);
-      return;
-    }
-    this.loadingRecent.set(true);
-    const iso = toIsoDate(date);
-    this.entriesApi.list({ party: partyId, from: iso, to: iso }).subscribe({
-      next: (rows) => {
-        this.recentEntries.set(rows);
-        this.loadingRecent.set(false);
-      },
-      error: () => this.loadingRecent.set(false),
-    });
-  }
-
 }

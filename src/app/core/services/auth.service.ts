@@ -5,11 +5,13 @@ import { tap } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
 import { TOKEN_KEY, USER_KEY } from '../constants/auth.constants';
 import { AuthResponse, User } from '../models/gms.models';
+import { injectQueryClient } from '../query';
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly http = inject(HttpClient);
   private readonly router = inject(Router);
+  private readonly queryClient = injectQueryClient();
   private readonly base = `${environment.apiUrl}/auth`;
 
   readonly user = signal<User | null>(this.readUser());
@@ -33,6 +35,7 @@ export class AuthService {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     this.user.set(null);
+    this.queryClient.clear();
     void this.router.navigateByUrl('/login');
   }
 

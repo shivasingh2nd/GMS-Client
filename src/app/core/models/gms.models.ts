@@ -34,6 +34,13 @@ export interface Consumer {
   distributor: Distributor | string;
 }
 
+export interface ConsumerListResponse {
+  items: Consumer[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 export interface Dac {
   _id: string;
   consumer: Consumer | string;

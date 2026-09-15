@@ -1,4 +1,4 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ConfirmationService, MessageService } from 'primeng/api';
@@ -8,31 +8,71 @@ import { InputText } from 'primeng/inputtext';
 import { Select } from 'primeng/select';
 import { TableModule } from 'primeng/table';
 import { Textarea } from 'primeng/textarea';
+import { lastValueFrom } from 'rxjs';
 import { COMPANIES, Distributor, Party } from '../../../core/models/gms.models';
 import { DistributorService } from '../../../core/services/api/distributor.service';
 import { PartyService } from '../../../core/services/api/party.service';
+import {
+  injectMutation,
+  injectQuery,
+  invalidateAfter,
+  injectQueryClient,
+  queryKeys,
+  STALE,
+} from '../../../core/query';
 import { apiErrorMessage } from '../../../core/utils/api-error';
 import { distributorIdFromParty } from '../../../core/utils/distributor';
 import { toastMissingRequired } from '../../../core/utils/form-validation';
+import { toUpperAlpha, UppercaseInputDirective } from '../../../shared/uppercase-input.directive';
+import { QueryState } from '../../../shared/query-state/query-state';
 
 @Component({
   selector: 'app-distributors-page',
-  imports: [ReactiveFormsModule, RouterLink, Button, Dialog, InputText, Select, TableModule, Textarea],
+  imports: [
+    ReactiveFormsModule,
+    RouterLink,
+    Button,
+    Dialog,
+    InputText,
+    Select,
+    TableModule,
+    Textarea,
+    UppercaseInputDirective,
+    QueryState,
+  ],
   templateUrl: './distributors-page.html',
 })
-export class DistributorsPage implements OnInit {
+export class DistributorsPage {
   private readonly api = inject(DistributorService);
   private readonly partiesApi = inject(PartyService);
   private readonly fb = inject(FormBuilder);
   private readonly messages = inject(MessageService);
   private readonly confirm = inject(ConfirmationService);
+  private readonly queryClient = injectQueryClient();
 
-  readonly rows = signal<Distributor[]>([]);
-  readonly partyByDistributor = signal<Record<string, string>>({});
+  readonly distributorsQuery = injectQuery(() => ({
+    queryKey: queryKeys.distributors.list(),
+    queryFn: () => lastValueFrom(this.api.list()),
+    staleTime: STALE.distributors,
+  }));
+
+  readonly partiesQuery = injectQuery(() => ({
+    queryKey: queryKeys.parties.list(),
+    queryFn: () => lastValueFrom(this.partiesApi.list()),
+    staleTime: STALE.parties,
+  }));
+
+  readonly rows = computed(() => this.distributorsQuery.data() ?? []);
+  readonly loading = computed(
+    () => this.distributorsQuery.isPending() && !this.distributorsQuery.data(),
+  );
+  readonly loadError = computed(() => this.distributorsQuery.isError());
+  readonly partyByDistributor = computed(() =>
+    this.buildPartyMap(this.partiesQuery.data() ?? []),
+  );
+
   readonly companies = COMPANIES;
-  readonly loading = signal(false);
   readonly dialogVisible = signal(false);
-  readonly saving = signal(false);
   readonly editingId = signal<string | null>(null);
 
   readonly form = this.fb.nonNullable.group({
@@ -42,12 +82,52 @@ export class DistributorsPage implements OnInit {
     address: ['', Validators.required],
   });
 
-  ngOnInit(): void {
-    this.partiesApi.list().subscribe({
-      next: (parties) => this.partyByDistributor.set(this.buildPartyMap(parties)),
-    });
-    this.reload();
-  }
+  readonly saveMutation = injectMutation(() => ({
+    mutationFn: (input: {
+      id: string | null;
+      payload: {
+        company: (typeof COMPANIES)[number];
+        name: string;
+        phone?: string;
+        address: string;
+      };
+    }) =>
+      lastValueFrom(
+        input.id ? this.api.update(input.id, input.payload) : this.api.create(input.payload),
+      ),
+    onSuccess: async (_data, input) => {
+      await invalidateAfter.distributor(this.queryClient);
+      this.dialogVisible.set(false);
+      this.messages.add({
+        severity: 'success',
+        summary: input.id ? 'Distributor updated' : 'Distributor created',
+      });
+    },
+    onError: (err) => {
+      this.messages.add({
+        severity: 'error',
+        summary: 'Could not save distributor',
+        detail: apiErrorMessage(err),
+      });
+    },
+  }));
+
+  readonly deleteMutation = injectMutation(() => ({
+    mutationFn: (id: string) => lastValueFrom(this.api.remove(id)),
+    onSuccess: async () => {
+      await invalidateAfter.distributor(this.queryClient);
+      this.messages.add({ severity: 'success', summary: 'Distributor deleted' });
+    },
+    onError: (err) => {
+      this.messages.add({
+        severity: 'error',
+        summary: 'Could not delete distributor',
+        detail: apiErrorMessage(err),
+      });
+    },
+  }));
+
+  readonly saving = computed(() => this.saveMutation.isPending());
 
   partyIdFor(distributorId: string): string | null {
     return this.partyByDistributor()[distributorId] ?? null;
@@ -78,8 +158,12 @@ export class DistributorsPage implements OnInit {
       acceptLabel: 'Delete',
       rejectLabel: 'Cancel',
       acceptIcon: 'pi pi-trash',
-      accept: () => this.remove(row._id),
+      accept: () => this.deleteMutation.mutate(row._id),
     });
+  }
+
+  retryLoad(): void {
+    this.distributorsQuery.refetch();
   }
 
   save(): void {
@@ -89,34 +173,13 @@ export class DistributorsPage implements OnInit {
       return;
     }
     const v = this.form.getRawValue();
-    const id = this.editingId();
-    const payload = {
-      company: v.company as (typeof COMPANIES)[number],
-      name: v.name.trim(),
-      phone: v.phone.trim() || undefined,
-      address: v.address.trim(),
-    };
-    this.saving.set(true);
-
-    const request = id ? this.api.update(id, payload) : this.api.create(payload);
-
-    request.subscribe({
-      next: () => {
-        this.saving.set(false);
-        this.dialogVisible.set(false);
-        this.messages.add({
-          severity: 'success',
-          summary: id ? 'Distributor updated' : 'Distributor created',
-        });
-        this.reload();
-      },
-      error: (err) => {
-        this.saving.set(false);
-        this.messages.add({
-          severity: 'error',
-          summary: 'Could not save distributor',
-          detail: apiErrorMessage(err),
-        });
+    this.saveMutation.mutate({
+      id: this.editingId(),
+      payload: {
+        company: v.company as (typeof COMPANIES)[number],
+        name: toUpperAlpha(v.name.trim()),
+        phone: v.phone.trim() || undefined,
+        address: toUpperAlpha(v.address.trim()),
       },
     });
   }
@@ -128,39 +191,5 @@ export class DistributorsPage implements OnInit {
       if (distributorId) map[distributorId] = party._id;
     }
     return map;
-  }
-
-  private remove(id: string): void {
-    this.api.remove(id).subscribe({
-      next: () => {
-        this.messages.add({ severity: 'success', summary: 'Distributor deleted' });
-        this.reload();
-      },
-      error: (err) => {
-        this.messages.add({
-          severity: 'error',
-          summary: 'Could not delete distributor',
-          detail: err?.error?.message || 'Request failed',
-        });
-      },
-    });
-  }
-
-  private reload(): void {
-    this.loading.set(true);
-    this.api.list().subscribe({
-      next: (rows) => {
-        this.rows.set(rows);
-        this.loading.set(false);
-      },
-      error: (err) => {
-        this.loading.set(false);
-        this.messages.add({
-          severity: 'error',
-          summary: 'Failed to load distributors',
-          detail: err?.error?.message || 'Request failed',
-        });
-      },
-    });
   }
 }

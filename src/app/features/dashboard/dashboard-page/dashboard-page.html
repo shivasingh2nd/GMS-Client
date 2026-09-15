@@ -12,98 +12,133 @@
   </div>
 </div>
 
-@if (summary(); as s) {
-  <div class="mb-5 grid gap-3 sm:grid-cols-3">
-    <div class="gms-panel p-4">
-      <p class="gms-page-kicker">You'll get</p>
-      <p class="mt-1 font-display text-2xl text-[var(--gms-teal-deep)]">
-        {{ formatAmount(s.totalReceivable) }}
-      </p>
+@if (loading()) {
+  <div class="gms-panel mb-5 p-4">
+    <app-query-state [pending]="true" pendingTitle="Loading dashboard…" />
+  </div>
+} @else {
+  @if (hasError() && !summary()) {
+    <div class="gms-panel mb-5 p-4">
+      <app-query-state
+        [error]="true"
+        errorTitle="Failed to load dashboard"
+        [errorDetail]="errorDetail()"
+        (retry)="retryAll()"
+      />
     </div>
-    <div class="gms-panel p-4">
-      <p class="gms-page-kicker">You'll give</p>
-      <p class="mt-1 font-display text-2xl text-[#b94a43]">{{ formatAmount(s.totalPayable) }}</p>
+  }
+
+  @if (summary(); as s) {
+    <div class="mb-5 grid gap-3 sm:grid-cols-3">
+      <div class="gms-panel p-4">
+        <p class="gms-page-kicker">You'll get</p>
+        <p class="mt-1 font-display text-2xl text-[var(--gms-teal-deep)]">
+          {{ formatAmount(s.totalReceivable) }}
+        </p>
+      </div>
+      <div class="gms-panel p-4">
+        <p class="gms-page-kicker">You'll give</p>
+        <p class="mt-1 font-display text-2xl text-[#b94a43]">{{ formatAmount(s.totalPayable) }}</p>
+      </div>
+      <div class="gms-panel p-4">
+        <p class="gms-page-kicker">Net balance</p>
+        <p class="mt-1 font-display text-2xl">{{ formatAmount(s.netBalance) }}</p>
+      </div>
     </div>
-    <div class="gms-panel p-4">
-      <p class="gms-page-kicker">Net balance</p>
-      <p class="mt-1 font-display text-2xl">{{ formatAmount(s.netBalance) }}</p>
-    </div>
+  }
+
+  <div class="grid gap-5 lg:grid-cols-2">
+    <section class="gms-panel p-4">
+      <div class="mb-3 flex items-center justify-between">
+        <p class="gms-page-kicker">Recent DACs</p>
+        <a routerLink="/dac-report" class="text-sm text-[var(--gms-teal-deep)] hover:underline">View all</a>
+      </div>
+      @if (recentDacsQuery.isError()) {
+        <app-query-state
+          [error]="true"
+          errorTitle="Failed to load DACs"
+          (retry)="recentDacsQuery.refetch()"
+        />
+      } @else if (recentDacs().length === 0) {
+        <p class="text-sm text-[var(--gms-muted)]">No DAC entries yet.</p>
+      } @else {
+        <ul class="space-y-2">
+          @for (row of recentDacs(); track row._id) {
+            <li class="flex items-center justify-between rounded-lg border border-[var(--gms-line)] px-3 py-2">
+              <div>
+                <p class="font-medium">{{ row.dacNumber }}</p>
+                <p class="text-xs text-[var(--gms-muted)]">{{ dacDistributor(row) }}</p>
+              </div>
+              <span class="font-semibold">{{ formatAmount(row.amount) }}</span>
+            </li>
+          }
+        </ul>
+      }
+    </section>
+
+    <section class="gms-panel p-4">
+      <div class="mb-3 flex items-center justify-between">
+        <p class="gms-page-kicker">Purchases this month</p>
+        <a routerLink="/purchases" class="text-sm text-[var(--gms-teal-deep)] hover:underline">View all</a>
+      </div>
+      @if (purchasesQuery.isError()) {
+        <app-query-state
+          [error]="true"
+          errorTitle="Failed to load purchases"
+          (retry)="purchasesQuery.refetch()"
+        />
+      } @else if (recentPurchases().length === 0) {
+        <p class="text-sm text-[var(--gms-muted)]">No purchases this month.</p>
+      } @else {
+        <ul class="space-y-2">
+          @for (row of recentPurchases(); track row._id) {
+            <li class="flex items-center justify-between rounded-lg border border-[var(--gms-line)] px-3 py-2">
+              <div>
+                <p class="font-medium">{{ purchaseDistributor(row) }}</p>
+                <p class="text-xs text-[var(--gms-muted)]">{{ row.purchaseDate | date: 'dd MMM yyyy' }}</p>
+              </div>
+              <span class="font-semibold">{{ formatAmount(row.totalAmount) }}</span>
+            </li>
+          }
+        </ul>
+      }
+    </section>
+
+    <section class="gms-panel p-4 lg:col-span-2">
+      <div class="mb-3 flex items-center justify-between">
+        <p class="gms-page-kicker">Recent account entries</p>
+        <a routerLink="/account-ledger" class="text-sm text-[var(--gms-teal-deep)] hover:underline">View ledger</a>
+      </div>
+      @if (recentEntriesQuery.isError()) {
+        <app-query-state
+          [error]="true"
+          errorTitle="Failed to load entries"
+          (retry)="recentEntriesQuery.refetch()"
+        />
+      } @else if (recentEntries().length === 0) {
+        <p class="text-sm text-[var(--gms-muted)]">No account entries yet.</p>
+      } @else {
+        <div class="gms-table-wrap">
+          <p-table [value]="recentEntries()" dataKey="_id" styleClass="p-datatable-sm gms-datatable">
+            <ng-template #header>
+              <tr>
+                <th>Date</th>
+                <th>Party</th>
+                <th>Type</th>
+                <th class="text-right">Amount</th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-row>
+              <tr>
+                <td>{{ row.date }}</td>
+                <td>{{ entryPartyName(row) }}</td>
+                <td>{{ entryLabel(row) }}</td>
+                <td class="text-right font-semibold">{{ formatAmount(row.amount) }}</td>
+              </tr>
+            </ng-template>
+          </p-table>
+        </div>
+      }
+    </section>
   </div>
 }
-
-<div class="grid gap-5 lg:grid-cols-2">
-  <section class="gms-panel p-4">
-    <div class="mb-3 flex items-center justify-between">
-      <p class="gms-page-kicker">Recent DACs</p>
-      <a routerLink="/dac-report" class="text-sm text-[var(--gms-teal-deep)] hover:underline">View all</a>
-    </div>
-    @if (recentDacs().length === 0) {
-      <p class="text-sm text-[var(--gms-muted)]">No DAC entries yet.</p>
-    } @else {
-      <ul class="space-y-2">
-        @for (row of recentDacs(); track row._id) {
-          <li class="flex items-center justify-between rounded-lg border border-[var(--gms-line)] px-3 py-2">
-            <div>
-              <p class="font-medium">{{ row.dacNumber }}</p>
-              <p class="text-xs text-[var(--gms-muted)]">{{ dacDistributor(row) }}</p>
-            </div>
-            <span class="font-semibold">{{ formatAmount(row.amount) }}</span>
-          </li>
-        }
-      </ul>
-    }
-  </section>
-
-  <section class="gms-panel p-4">
-    <div class="mb-3 flex items-center justify-between">
-      <p class="gms-page-kicker">Purchases this month</p>
-      <a routerLink="/purchases" class="text-sm text-[var(--gms-teal-deep)] hover:underline">View all</a>
-    </div>
-    @if (recentPurchases().length === 0) {
-      <p class="text-sm text-[var(--gms-muted)]">No purchases this month.</p>
-    } @else {
-      <ul class="space-y-2">
-        @for (row of recentPurchases(); track row._id) {
-          <li class="flex items-center justify-between rounded-lg border border-[var(--gms-line)] px-3 py-2">
-            <div>
-              <p class="font-medium">{{ purchaseDistributor(row) }}</p>
-              <p class="text-xs text-[var(--gms-muted)]">{{ row.purchaseDate | date: 'dd MMM yyyy' }}</p>
-            </div>
-            <span class="font-semibold">{{ formatAmount(row.totalAmount) }}</span>
-          </li>
-        }
-      </ul>
-    }
-  </section>
-
-  <section class="gms-panel p-4 lg:col-span-2">
-    <div class="mb-3 flex items-center justify-between">
-      <p class="gms-page-kicker">Recent account entries</p>
-      <a routerLink="/account-ledger" class="text-sm text-[var(--gms-teal-deep)] hover:underline">View ledger</a>
-    </div>
-    @if (recentEntries().length === 0) {
-      <p class="text-sm text-[var(--gms-muted)]">No account entries yet.</p>
-    } @else {
-      <div class="gms-table-wrap">
-        <p-table [value]="recentEntries()" styleClass="p-datatable-sm gms-datatable">
-          <ng-template #header>
-            <tr>
-              <th>Date</th>
-              <th>Party</th>
-              <th>Type</th>
-              <th class="text-right">Amount</th>
-            </tr>
-          </ng-template>
-          <ng-template #body let-row>
-            <tr>
-              <td>{{ row.date }}</td>
-              <td>{{ entryPartyName(row) }}</td>
-              <td>{{ entryLabel(row) }}</td>
-              <td class="text-right font-semibold">{{ formatAmount(row.amount) }}</td>
-            </tr>
-          </ng-template>
-        </p-table>
-      </div>
-    }
-  </section>
-</div>

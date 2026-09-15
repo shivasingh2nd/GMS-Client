@@ -9,8 +9,19 @@
 </div>
 
 <div class="gms-table-wrap">
+  @if (loadError()) {
+    <div class="gms-panel p-4">
+      <app-query-state
+        [error]="true"
+        errorTitle="Failed to load distributors"
+        [errorDetail]="distributorsQuery.error()?.message || ''"
+        (retry)="retryLoad()"
+      />
+    </div>
+  } @else {
   <p-table
     [value]="rows()"
+    dataKey="_id"
     [loading]="loading()"
     [paginator]="rows().length > 8"
     [rows]="8"
@@ -87,6 +98,7 @@
       </tr>
     </ng-template>
   </p-table>
+  }
 </div>
 
 <p-dialog
@@ -119,18 +131,18 @@
     </label>
     <label class="block">
       <span class="gms-field-label">Name *</span>
-      <input pInputText class="w-full" formControlName="name" />
+      <input pInputText class="w-full" formControlName="name" gmsUppercase />
     </label>
     <label class="block">
       <span class="gms-field-label">Phone</span>
-      <input pInputText class="w-full" formControlName="phone" inputmode="tel" />
+      <input pInputText class="w-full" formControlName="phone" inputmode="tel" gmsUppercase />
       <p class="mt-1 text-xs text-[var(--gms-muted)]">
         Syncs to the linked account party when filled.
       </p>
     </label>
     <label class="block">
       <span class="gms-field-label">Address *</span>
-      <textarea pTextarea class="w-full" rows="3" formControlName="address"></textarea>
+      <textarea pTextarea class="w-full" rows="3" formControlName="address" gmsUppercase></textarea>
     </label>
     <div class="gms-dialog-actions">
       <p-button

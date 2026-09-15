@@ -1,12 +1,11 @@
 import { DatePipe } from '@angular/common';
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { MessageService } from 'primeng/api';
 import { Button } from 'primeng/button';
 import { TableModule } from 'primeng/table';
+import { lastValueFrom } from 'rxjs';
 import {
   AccountEntry,
-  AccountSummaryResponse,
   Dac,
   Party,
   Purchase,
@@ -15,59 +14,88 @@ import { AccountEntryService } from '../../../core/services/api/account-entry.se
 import { AccountReportService } from '../../../core/services/api/account-report.service';
 import { DacService } from '../../../core/services/api/dac.service';
 import { PurchaseService } from '../../../core/services/api/purchase.service';
+import { injectQuery, queryKeys, STALE } from '../../../core/query';
 import { apiErrorMessage } from '../../../core/utils/api-error';
 import { entryTypeLabel, formatAccountBalance, formatCurrency } from '../../../core/utils/account-balance';
 import { dacBookingLabel } from '../../../core/utils/distributor';
 import { endOfMonth, startOfMonth, toIsoDate } from '../../../core/utils/date';
+import { QueryState } from '../../../shared/query-state/query-state';
 
 @Component({
   selector: 'app-dashboard-page',
-  imports: [DatePipe, RouterLink, Button, TableModule],
+  imports: [DatePipe, RouterLink, Button, TableModule, QueryState],
   templateUrl: './dashboard-page.html',
 })
-export class DashboardPage implements OnInit {
+export class DashboardPage {
   private readonly summaryApi = inject(AccountReportService);
   private readonly dacApi = inject(DacService);
   private readonly purchaseApi = inject(PurchaseService);
   private readonly entriesApi = inject(AccountEntryService);
-  private readonly messages = inject(MessageService);
 
-  readonly loading = signal(true);
-  readonly summary = signal<AccountSummaryResponse | null>(null);
-  readonly recentDacs = signal<Dac[]>([]);
-  readonly recentPurchases = signal<Purchase[]>([]);
-  readonly recentEntries = signal<AccountEntry[]>([]);
-
-  ngOnInit(): void {
+  private readonly monthRange = (() => {
     const now = new Date();
-    const from = toIsoDate(startOfMonth(now));
-    const to = toIsoDate(endOfMonth(now));
+    return {
+      from: toIsoDate(startOfMonth(now)),
+      to: toIsoDate(endOfMonth(now)),
+    };
+  })();
 
-    this.summaryApi.summary().subscribe({
-      next: (data) => this.summary.set(data),
-      error: (err) => this.toast('Failed to load summary', err),
-    });
+  readonly summaryQuery = injectQuery(() => ({
+    queryKey: queryKeys.accounts.summary(),
+    queryFn: () => lastValueFrom(this.summaryApi.summary()),
+    staleTime: STALE.summary,
+  }));
 
-    this.dacApi.list({ limit: 5 }).subscribe({
-      next: (rows) => this.recentDacs.set(rows),
-      error: (err) => this.toast('Failed to load recent DACs', err),
-    });
+  readonly recentDacsQuery = injectQuery(() => ({
+    queryKey: queryKeys.dacs.list({ limit: 5 }),
+    queryFn: () => lastValueFrom(this.dacApi.list({ limit: 5 })),
+    staleTime: STALE.dacs,
+  }));
 
-    this.purchaseApi.list({ from, to }).subscribe({
-      next: (rows) => this.recentPurchases.set(rows.slice(0, 5)),
-      error: (err) => this.toast('Failed to load purchases', err),
-    });
+  readonly purchasesQuery = injectQuery(() => ({
+    queryKey: queryKeys.purchases.list(this.monthRange),
+    queryFn: () => lastValueFrom(this.purchaseApi.list(this.monthRange)),
+    staleTime: STALE.purchases,
+  }));
 
-    this.entriesApi.list({ limit: 5 }).subscribe({
-      next: (rows) => {
-        this.recentEntries.set(rows);
-        this.loading.set(false);
-      },
-      error: (err) => {
-        this.loading.set(false);
-        this.toast('Failed to load recent entries', err);
-      },
-    });
+  readonly recentEntriesQuery = injectQuery(() => ({
+    queryKey: queryKeys.entries.list({ limit: 5 }),
+    queryFn: () => lastValueFrom(this.entriesApi.list({ limit: 5 })),
+    staleTime: STALE.entries,
+  }));
+
+  readonly summary = computed(() => this.summaryQuery.data() ?? null);
+  readonly recentDacs = computed(() => this.recentDacsQuery.data() ?? []);
+  readonly recentPurchases = computed(() => (this.purchasesQuery.data() ?? []).slice(0, 5));
+  readonly recentEntries = computed(() => this.recentEntriesQuery.data() ?? []);
+  readonly loading = computed(
+    () =>
+      (this.summaryQuery.isPending() && !this.summaryQuery.data()) ||
+      (this.recentDacsQuery.isPending() && !this.recentDacsQuery.data()) ||
+      (this.purchasesQuery.isPending() && !this.purchasesQuery.data()) ||
+      (this.recentEntriesQuery.isPending() && !this.recentEntriesQuery.data()),
+  );
+  readonly hasError = computed(
+    () =>
+      this.summaryQuery.isError() ||
+      this.recentDacsQuery.isError() ||
+      this.purchasesQuery.isError() ||
+      this.recentEntriesQuery.isError(),
+  );
+  readonly errorDetail = computed(() => {
+    const err =
+      this.summaryQuery.error() ||
+      this.recentDacsQuery.error() ||
+      this.purchasesQuery.error() ||
+      this.recentEntriesQuery.error();
+    return err ? apiErrorMessage(err) : '';
+  });
+
+  retryAll(): void {
+    this.summaryQuery.refetch();
+    this.recentDacsQuery.refetch();
+    this.purchasesQuery.refetch();
+    this.recentEntriesQuery.refetch();
   }
 
   formatAmount(amount: number): string {
@@ -100,13 +128,5 @@ export class DashboardPage implements OnInit {
 
   entryLabel(row: AccountEntry): string {
     return entryTypeLabel(row.type, row.source ?? 'manual');
-  }
-
-  private toast(summary: string, err: unknown): void {
-    this.messages.add({
-      severity: 'error',
-      summary,
-      detail: apiErrorMessage(err),
-    });
   }
 }

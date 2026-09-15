@@ -28,7 +28,7 @@
           Consumer lookup
         </h2>
         <p class="mt-1 text-sm text-[var(--gms-muted)]">
-          Select the consumer’s distributor, then look up the consumer number.
+          Select the distributor, then upload an HP PAY screenshot or enter the consumer number.
         </p>
       </div>
       <i class="pi pi-search text-[var(--gms-mint)]" aria-hidden="true"></i>
@@ -75,6 +75,8 @@
         />
       </div>
 
+      <app-hp-pay-screenshot-upload (extracted)="applyHpPayFields($event)" />
+
       <div class="gms-field-with-action">
         <label class="block min-w-0">
           <span class="gms-field-label">Consumer number *</span>
@@ -83,8 +85,9 @@
             pInputText
             class="w-full"
             formControlName="consumerNumber"
-            placeholder="Enter consumer number"
+            placeholder="From screenshot or type here"
             autocomplete="off"
+            gmsUppercase
           />
         </label>
         <p-button
@@ -133,19 +136,19 @@
             @if (incompleteConsumerFields().fatherName) {
               <label class="block">
                 <span class="gms-field-label">Father name</span>
-                <input id="fatherName" pInputText class="w-full" formControlName="fatherName" />
+                <input id="fatherName" pInputText class="w-full" formControlName="fatherName" gmsUppercase />
               </label>
             }
             @if (incompleteConsumerFields().phone) {
               <label class="block">
                 <span class="gms-field-label">Phone</span>
-                <input id="phone" pInputText class="w-full" formControlName="phone" />
+                <input id="phone" pInputText class="w-full" formControlName="phone" gmsUppercase />
               </label>
             }
             @if (incompleteConsumerFields().address) {
               <label class="block md:col-span-2">
                 <span class="gms-field-label">Address</span>
-                <textarea id="address" pTextarea class="w-full" rows="2" formControlName="address"></textarea>
+                <textarea id="address" pTextarea class="w-full" rows="2" formControlName="address" gmsUppercase></textarea>
               </label>
             }
           </div>
@@ -163,24 +166,25 @@
       <div class="gms-reveal gms-status gms-status-missing mt-5">
         <p class="text-xs font-semibold uppercase tracking-wide text-[var(--gms-teal-deep)]">New consumer</p>
         <p class="mt-1 text-sm text-[var(--gms-muted)]">
-          Not found for this distributor — capture details here with the DAC.
+          Not found for this distributor — capture details here with the DAC. Father name is
+          manual if needed.
         </p>
         <div class="mt-4 grid gap-4 md:grid-cols-2">
           <label class="block md:col-span-2">
             <span class="gms-field-label">Name *</span>
-            <input id="consumerName" pInputText class="w-full" formControlName="consumerName" />
+            <input id="consumerName" pInputText class="w-full" formControlName="consumerName" gmsUppercase />
           </label>
           <label class="block">
             <span class="gms-field-label">Father name</span>
-            <input id="fatherName" pInputText class="w-full" formControlName="fatherName" />
+            <input id="fatherName" pInputText class="w-full" formControlName="fatherName" gmsUppercase />
           </label>
           <label class="block">
             <span class="gms-field-label">Phone</span>
-            <input id="phone" pInputText class="w-full" formControlName="phone" />
+            <input id="phone" pInputText class="w-full" formControlName="phone" gmsUppercase />
           </label>
           <label class="block md:col-span-2">
             <span class="gms-field-label">Address</span>
-            <textarea id="address" pTextarea class="w-full" rows="2" formControlName="address"></textarea>
+            <textarea id="address" pTextarea class="w-full" rows="2" formControlName="address" gmsUppercase></textarea>
           </label>
         </div>
       </div>
@@ -244,7 +248,7 @@
 
         <label class="block">
           <span class="gms-field-label">DAC number *</span>
-          <input id="dacNumber" pInputText class="w-full" formControlName="dacNumber" />
+          <input id="dacNumber" pInputText class="w-full" formControlName="dacNumber" gmsUppercase />
         </label>
         <label class="block">
           <span class="gms-field-label">DAC date *</span>
@@ -320,7 +324,7 @@
 
         <label class="block md:col-span-2">
           <span class="gms-field-label">Remarks</span>
-          <textarea pTextarea class="w-full" rows="2" formControlName="remarks"></textarea>
+          <textarea pTextarea class="w-full" rows="2" formControlName="remarks" gmsUppercase></textarea>
         </label>
       </div>
     </section>

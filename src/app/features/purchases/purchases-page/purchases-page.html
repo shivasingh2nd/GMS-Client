@@ -187,12 +187,12 @@
       @if (editingId()) {
         <label class="block sm:col-span-2">
           <span class="gms-field-label">Invoice number</span>
-          <input pInputText class="w-full" formControlName="invoiceNumber" />
+          <input pInputText class="w-full" formControlName="invoiceNumber" gmsUppercase />
         </label>
       } @else {
         <label class="block">
           <span class="gms-field-label">Invoice number</span>
-          <input pInputText class="w-full" formControlName="invoiceNumber" />
+          <input pInputText class="w-full" formControlName="invoiceNumber" gmsUppercase />
         </label>
         <label class="block">
           <span class="gms-field-label">Pay now</span>
@@ -300,6 +300,7 @@
             class="w-full"
             formControlName="paymentParticular"
             placeholder="e.g. UPI / Cash / Bank transfer"
+            gmsUppercase
           />
         </label>
         <label class="block">
@@ -319,7 +320,7 @@
 
     <label class="block">
       <span class="gms-field-label">Remarks</span>
-      <textarea pTextarea class="w-full" rows="2" formControlName="remarks"></textarea>
+      <textarea pTextarea class="w-full" rows="2" formControlName="remarks" gmsUppercase></textarea>
     </label>
 
     <div class="gms-dialog-actions">

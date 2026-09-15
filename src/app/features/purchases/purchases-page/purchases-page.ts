@@ -1,4 +1,4 @@
-import { Component, computed, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
   FormArray,
@@ -19,21 +19,26 @@ import { InputText } from 'primeng/inputtext';
 import { Select } from 'primeng/select';
 import { TableModule } from 'primeng/table';
 import { Textarea } from 'primeng/textarea';
+import { lastValueFrom } from 'rxjs';
 import { Item, Purchase, PurchaseItem } from '../../../core/models/gms.models';
 import { DistributorService } from '../../../core/services/api/distributor.service';
 import { ItemService } from '../../../core/services/api/item.service';
 import { PurchaseService } from '../../../core/services/api/purchase.service';
+import {
+  injectMutation,
+  injectQuery,
+  injectQueryClient,
+  invalidateAfter,
+  queryKeys,
+  STALE,
+} from '../../../core/query';
 import { apiErrorMessage } from '../../../core/utils/api-error';
 import { formatCurrency } from '../../../core/utils/account-balance';
 import { distributorOptionLabel } from '../../../core/utils/distributor';
 import { endOfMonth, startOfMonth, toIsoDate } from '../../../core/utils/date';
 import { downloadCsv, downloadPdf, ExportCell } from '../../../core/utils/export-report';
 import { toastMissingRequired } from '../../../core/utils/form-validation';
-
-interface DistributorOption {
-  _id: string;
-  label: string;
-}
+import { toUpperAlpha, UppercaseInputDirective } from '../../../shared/uppercase-input.directive';
 
 interface ItemOption {
   _id: string;
@@ -61,10 +66,11 @@ type PurchaseItemForm = FormGroup<{
     Select,
     TableModule,
     Textarea,
+    UppercaseInputDirective,
   ],
   templateUrl: './purchases-page.html',
 })
-export class PurchasesPage implements OnInit {
+export class PurchasesPage {
   private readonly api = inject(PurchaseService);
   private readonly distributorsApi = inject(DistributorService);
   private readonly itemsApi = inject(ItemService);
@@ -72,13 +78,9 @@ export class PurchasesPage implements OnInit {
   private readonly messages = inject(MessageService);
   private readonly confirm = inject(ConfirmationService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly queryClient = injectQueryClient();
 
-  readonly rows = signal<Purchase[]>([]);
-  readonly distributors = signal<DistributorOption[]>([]);
-  readonly stockItems = signal<ItemOption[]>([]);
-  readonly loading = signal(false);
   readonly dialogVisible = signal(false);
-  readonly saving = signal(false);
   readonly editingId = signal<string | null>(null);
 
   readonly payNowOptions = [
@@ -89,6 +91,51 @@ export class PurchasesPage implements OnInit {
   fromDate: Date = startOfMonth(new Date());
   toDate: Date = endOfMonth(new Date());
   distributorId: string | null = null;
+
+  private readonly fromFilter = signal(toIsoDate(this.fromDate));
+  private readonly toFilter = signal(toIsoDate(this.toDate));
+  private readonly distributorFilter = signal<string | undefined>(undefined);
+  private readonly searched = signal(true);
+
+  readonly distributorsQuery = injectQuery(() => ({
+    queryKey: queryKeys.distributors.list(),
+    queryFn: () => lastValueFrom(this.distributorsApi.list()),
+    staleTime: STALE.distributors,
+  }));
+
+  readonly itemsQuery = injectQuery(() => ({
+    queryKey: queryKeys.items.list(),
+    queryFn: () => lastValueFrom(this.itemsApi.list()),
+    staleTime: STALE.items,
+  }));
+
+  readonly purchasesQuery = injectQuery(() => {
+    const filters = {
+      distributor: this.distributorFilter(),
+      from: this.fromFilter(),
+      to: this.toFilter(),
+    };
+    return {
+      queryKey: queryKeys.purchases.list(filters),
+      queryFn: () => lastValueFrom(this.api.list(filters)),
+      staleTime: STALE.purchases,
+      enabled: this.searched(),
+    };
+  });
+
+  readonly distributors = computed(() =>
+    (this.distributorsQuery.data() ?? []).map((row) => ({
+      _id: row._id,
+      label: distributorOptionLabel(row),
+    })),
+  );
+  readonly stockItems = computed(() =>
+    (this.itemsQuery.data() ?? []).map((row) => this.toItemOption(row)),
+  );
+  readonly rows = computed(() => this.purchasesQuery.data() ?? []);
+  readonly loading = computed(
+    () => this.searched() && this.purchasesQuery.isPending() && !this.purchasesQuery.data(),
+  );
 
   readonly form = this.fb.nonNullable.group({
     distributor: ['', Validators.required],
@@ -108,20 +155,66 @@ export class PurchasesPage implements OnInit {
     return this.items.controls.reduce((sum, group) => sum + this.lineAmount(group), 0);
   });
 
-  ngOnInit(): void {
-    this.distributorsApi.list().subscribe({
-      next: (rows) =>
-        this.distributors.set(
-          rows.map((row) => ({ _id: row._id, label: distributorOptionLabel(row) })),
-        ),
-    });
-    this.itemsApi.list().subscribe({
-      next: (rows) => this.stockItems.set(rows.map((row) => this.toItemOption(row))),
-    });
+  readonly saveMutation = injectMutation(() => ({
+    mutationFn: (input: {
+      id: string | null;
+      payload: {
+        distributor: string;
+        purchaseDate: string;
+        invoiceNumber?: string;
+        items: Array<{ item: string; quantity: number; rate: number; amount: number }>;
+        totalAmount: number;
+        remarks?: string;
+        recordPayment?: boolean;
+        paymentParticular?: string;
+        paymentAmount?: number;
+      };
+      payNow: boolean;
+    }) =>
+      lastValueFrom(
+        input.id ? this.api.update(input.id, input.payload) : this.api.create(input.payload),
+      ),
+    onSuccess: async (_data, input) => {
+      await invalidateAfter.purchase(this.queryClient);
+      this.dialogVisible.set(false);
+      this.messages.add({
+        severity: 'success',
+        summary: input.id ? 'Purchase updated' : 'Purchase recorded',
+        detail: input.payNow
+          ? 'Purchase and payment posted to distributor account.'
+          : 'Amount posted to distributor account. Pay via Account Entry.',
+      });
+    },
+    onError: (err) => {
+      this.messages.add({
+        severity: 'error',
+        summary: 'Could not save purchase',
+        detail: apiErrorMessage(err),
+      });
+    },
+  }));
+
+  readonly deleteMutation = injectMutation(() => ({
+    mutationFn: (id: string) => lastValueFrom(this.api.remove(id)),
+    onSuccess: async () => {
+      await invalidateAfter.purchase(this.queryClient);
+      this.messages.add({ severity: 'success', summary: 'Purchase deleted' });
+    },
+    onError: (err) => {
+      this.messages.add({
+        severity: 'error',
+        summary: 'Could not delete purchase',
+        detail: apiErrorMessage(err),
+      });
+    },
+  }));
+
+  readonly saving = computed(() => this.saveMutation.isPending());
+
+  constructor() {
     this.form.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
       this.bumpFormTick();
     });
-    this.search();
   }
 
   get items(): FormArray<PurchaseItemForm> {
@@ -159,27 +252,10 @@ export class PurchasesPage implements OnInit {
   }
 
   search(): void {
-    this.loading.set(true);
-    this.api
-      .list({
-        distributor: this.distributorId || undefined,
-        from: toIsoDate(this.fromDate),
-        to: toIsoDate(this.toDate),
-      })
-      .subscribe({
-        next: (rows) => {
-          this.rows.set(rows);
-          this.loading.set(false);
-        },
-        error: (err) => {
-          this.loading.set(false);
-          this.messages.add({
-            severity: 'error',
-            summary: 'Failed to load purchases',
-            detail: apiErrorMessage(err),
-          });
-        },
-      });
+    this.fromFilter.set(toIsoDate(this.fromDate));
+    this.toFilter.set(toIsoDate(this.toDate));
+    this.distributorFilter.set(this.distributorId || undefined);
+    this.searched.set(true);
   }
 
   openCreate(): void {
@@ -225,7 +301,7 @@ export class PurchasesPage implements OnInit {
       acceptLabel: 'Delete',
       rejectLabel: 'Cancel',
       acceptIcon: 'pi pi-trash',
-      accept: () => this.remove(row._id),
+      accept: () => this.deleteMutation.mutate(row._id),
     });
   }
 
@@ -276,43 +352,20 @@ export class PurchasesPage implements OnInit {
     const payload = {
       distributor,
       purchaseDate: toIsoDate(purchaseDate),
-      invoiceNumber: v.invoiceNumber.trim() || undefined,
+      invoiceNumber: v.invoiceNumber.trim() ? toUpperAlpha(v.invoiceNumber.trim()) : undefined,
       items,
       totalAmount: total,
-      remarks: v.remarks.trim() || undefined,
+      remarks: v.remarks.trim() ? toUpperAlpha(v.remarks.trim()) : undefined,
       ...(payNow
         ? {
             recordPayment: true,
-            paymentParticular: v.paymentParticular.trim(),
+            paymentParticular: toUpperAlpha(v.paymentParticular.trim()),
             paymentAmount: Number(v.paymentAmount),
           }
         : {}),
     };
 
-    this.saving.set(true);
-    const request = id ? this.api.update(id, payload) : this.api.create(payload);
-    request.subscribe({
-      next: () => {
-        this.saving.set(false);
-        this.dialogVisible.set(false);
-        this.messages.add({
-          severity: 'success',
-          summary: id ? 'Purchase updated' : 'Purchase recorded',
-          detail: payNow
-            ? 'Purchase and payment posted to distributor account.'
-            : 'Amount posted to distributor account. Pay via Account Entry.',
-        });
-        this.search();
-      },
-      error: (err) => {
-        this.saving.set(false);
-        this.messages.add({
-          severity: 'error',
-          summary: 'Could not save purchase',
-          detail: apiErrorMessage(err),
-        });
-      },
-    });
+    this.saveMutation.mutate({ id, payload, payNow });
   }
 
   distributorName(row: Purchase): string {
@@ -405,12 +458,15 @@ export class PurchasesPage implements OnInit {
       });
     }
 
+    const from = this.fromFilter() || toIsoDate(this.fromDate);
+    const to = this.toFilter() || toIsoDate(this.toDate);
+
     return {
       title: 'Purchases report',
-      subtitle: `${toIsoDate(this.fromDate)} to ${toIsoDate(this.toDate)} · ${purchases.length} purchases`,
+      subtitle: `${from} to ${to} · ${purchases.length} purchases`,
       headers,
       rows,
-      filename: `purchases-${toIsoDate(this.fromDate)}-${toIsoDate(this.toDate)}`,
+      filename: `purchases-${from}-${to}`,
     };
   }
 
@@ -484,21 +540,5 @@ export class PurchasesPage implements OnInit {
       label: row.unit ? `${row.name} (${row.unit})` : row.name,
       defaultRate: row.defaultRate,
     };
-  }
-
-  private remove(id: string): void {
-    this.api.remove(id).subscribe({
-      next: () => {
-        this.messages.add({ severity: 'success', summary: 'Purchase deleted' });
-        this.search();
-      },
-      error: (err) => {
-        this.messages.add({
-          severity: 'error',
-          summary: 'Could not delete purchase',
-          detail: apiErrorMessage(err),
-        });
-      },
-    });
   }
 }
