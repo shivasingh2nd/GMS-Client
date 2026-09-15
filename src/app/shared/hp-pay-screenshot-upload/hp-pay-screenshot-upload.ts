@@ -95,7 +95,8 @@ export class HpPayScreenshotUpload {
         summary: 'Fields prefilled',
         detail: 'Review the values, then add distributor and father name before saving.',
       });
-    } catch {
+    } catch (error) {
+      console.error('HP PAY screenshot OCR failed', error);
       this.messages.add({
         severity: 'error',
         summary: 'Could not read screenshot',

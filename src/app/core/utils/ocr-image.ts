@@ -7,8 +7,8 @@ async function getWorker(): Promise<Worker> {
   if (sharedWorker) return sharedWorker;
   if (!workerPromise) {
     workerPromise = (async () => {
-      const { createWorker } = await import('tesseract.js');
-      const worker = await createWorker('eng');
+      const { default: tesseract } = await import('tesseract.js/dist/tesseract.esm.min.js');
+      const worker = await tesseract.createWorker('eng');
       sharedWorker = worker;
       return worker;
     })().catch((err) => {
